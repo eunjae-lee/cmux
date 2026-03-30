@@ -1,5 +1,48 @@
 # Plan: cmux Workspace Provider Extension System
 
+## Current Status
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 6: Extension Protocol (cmux side) | ✅ Implemented | Branch `feat/workspace-providers`. Needs build + test on host |
+| Phase 1: "+" Dropdown + Provider Integration | ✅ Implemented | Part of Phase 6 |
+| Phase 2: Simple Non-Worktree Project | ⬜ Not started | Provider scripts needed |
+| Phase 3: Suspended Tabs | ⬜ Not started | Research needed |
+| Phase 4: Worktree Support | ⬜ Not started | |
+| Phase 5: Workflows | ⬜ Backlog | |
+
+### What's done (Phase 6 + Phase 1)
+
+- `Sources/WorkspaceProvider.swift` — provider store, executor, shell streaming
+- `Sources/CmuxConfig.swift` — `workspace_providers` in `CmuxConfigFile`, merged from local + global config
+- `Sources/ContentView.swift` — "+" button in sidebar footer with dropdown menu, input sheet for items with parameters, progress indicator during creation, error alert on failure
+- `Sources/AppDelegate.swift` — `WorkspaceProviderStore` wired into SwiftUI environment
+- `GhosttyTabs.xcodeproj/project.pbxproj` — new file reference added
+
+### What's next
+
+Build and test on host:
+```bash
+./scripts/reload.sh --tag workspace-providers --launch
+```
+
+Test config at `~/.config/cmux/cmux.json`:
+```json
+{
+  "commands": [],
+  "workspace_providers": [
+    {
+      "id": "test",
+      "name": "Test Provider",
+      "list": "echo '{\"items\":[{\"id\":\"hello\",\"name\":\"Hello World\",\"subtitle\":\"~/workspace\"}]}'",
+      "create": "echo 'progress: Setting up...' && sleep 1 && echo '{\"title\":\"Hello World\",\"cwd\":\"'$HOME'\"}'"
+    }
+  ]
+}
+```
+
+---
+
 ## Overview
 
 Add an extension point to cmux so external tools can inject items into the workspace creation flow. The "+" button (new) in the sidebar becomes a dropdown: "New Workspace" (default) plus items from registered providers. Clicking a provider item runs the provider's setup flow and creates a workspace from its output.
