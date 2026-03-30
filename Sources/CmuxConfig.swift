@@ -4,6 +4,12 @@ import Foundation
 
 struct CmuxConfigFile: Codable, Sendable {
     var commands: [CmuxCommandDefinition]
+    var workspace_providers: [WorkspaceProviderDefinition]?
+
+    enum CodingKeys: String, CodingKey {
+        case commands
+        case workspace_providers
+    }
 }
 
 struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
@@ -349,10 +355,16 @@ final class CmuxConfigStore: ObservableObject {
         return nil
     }
 
+    /// Callback invoked when workspace providers change. Set by the app to update
+    /// the WorkspaceProviderStore.
+    var onProvidersChanged: (([WorkspaceProviderDefinition]) -> Void)?
+
     func loadAll() {
         var commands: [CmuxCommandDefinition] = []
         var seenNames = Set<String>()
         var sourcePaths: [String: String] = [:]
+        var providers: [WorkspaceProviderDefinition] = []
+        var seenProviderIds = Set<String>()
 
         // Local config takes precedence
         if let localPath = localConfigPath {
@@ -362,6 +374,12 @@ final class CmuxConfigStore: ObservableObject {
                         commands.append(command)
                         seenNames.insert(command.name)
                         sourcePaths[command.id] = localPath
+                    }
+                }
+                for provider in localConfig.workspace_providers ?? [] {
+                    if !seenProviderIds.contains(provider.id) {
+                        providers.append(provider)
+                        seenProviderIds.insert(provider.id)
                     }
                 }
             }
@@ -376,11 +394,18 @@ final class CmuxConfigStore: ObservableObject {
                     sourcePaths[command.id] = globalConfigPath
                 }
             }
+            for provider in globalConfig.workspace_providers ?? [] {
+                if !seenProviderIds.contains(provider.id) {
+                    providers.append(provider)
+                    seenProviderIds.insert(provider.id)
+                }
+            }
         }
 
         loadedCommands = commands
         commandSourcePaths = sourcePaths
         configRevision &+= 1
+        onProvidersChanged?(providers)
     }
 
     // MARK: - Parsing

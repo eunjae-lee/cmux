@@ -6085,6 +6085,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let notificationStore = TerminalNotificationStore.shared
 
         let cmuxConfigStore = CmuxConfigStore()
+        let workspaceProviderStore = WorkspaceProviderStore()
+        cmuxConfigStore.onProvidersChanged = { [weak workspaceProviderStore] providers in
+            workspaceProviderStore?.updateProviders(providers)
+        }
         cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
         cmuxConfigStore.loadAll()
 
@@ -6094,6 +6098,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(sidebarState)
             .environmentObject(sidebarSelectionState)
             .environmentObject(cmuxConfigStore)
+            .environmentObject(workspaceProviderStore)
 
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.

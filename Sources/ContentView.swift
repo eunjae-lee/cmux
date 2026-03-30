@@ -9746,10 +9746,17 @@ private struct SidebarFooter: View {
 
 private struct SidebarFooterButtons: View {
     @ObservedObject var updateViewModel: UpdateViewModel
+    @EnvironmentObject var tabManager: TabManager
+    @EnvironmentObject var workspaceProviderStore: WorkspaceProviderStore
     let onSendFeedback: () -> Void
 
     var body: some View {
         HStack(spacing: 4) {
+            SidebarNewWorkspaceMenuButton(
+                tabManager: tabManager,
+                providerStore: workspaceProviderStore
+            )
+            Spacer()
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
             UpdatePill(model: updateViewModel)
         }
@@ -10452,6 +10459,318 @@ enum FeedbackComposerBridge {
             default:
                 return "Couldn't send feedback. Please try again."
             }
+        }
+    }
+}
+
+// MARK: - Sidebar New Workspace Menu Button
+
+private struct SidebarNewWorkspaceMenuButton: View {
+    @ObservedObject var tabManager: TabManager
+    @ObservedObject var providerStore: WorkspaceProviderStore
+    @State private var isPopoverPresented = false
+    @State private var providerItems: [String: [WorkspaceProviderItem]] = [:]
+    @State private var isLoadingProviders = false
+    @State private var activeCreateTask: Task<Void, Never>?
+    @State private var createProgressMessage: String?
+    @State private var showingInputSheet = false
+    @State private var pendingProvider: WorkspaceProviderDefinition?
+    @State private var pendingItem: WorkspaceProviderItem?
+    @State private var inputValues: [String: String] = [:]
+    @State private var showingError = false
+    @State private var errorMessage = ""
+
+    private let buttonSize: CGFloat = 22
+    private let iconSize: CGFloat = 11
+
+    var body: some View {
+        Button {
+            isPopoverPresented.toggle()
+            if isPopoverPresented {
+                fetchProviderItems()
+            }
+        } label: {
+            Image(systemName: "plus")
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: iconSize, weight: .medium))
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                .frame(width: buttonSize, height: buttonSize, alignment: .center)
+        }
+        .buttonStyle(SidebarFooterIconButtonStyle())
+        .frame(width: buttonSize, height: buttonSize, alignment: .center)
+        .background(ArrowlessPopoverAnchor(
+            isPresented: $isPopoverPresented,
+            preferredEdge: .maxY,
+            detachedGap: 4
+        ) {
+            newWorkspaceMenu
+        })
+        .accessibilityLabel(String(localized: "sidebar.newWorkspace.button", defaultValue: "New Workspace"))
+        .accessibilityIdentifier("SidebarNewWorkspaceButton")
+        .sheet(isPresented: $showingInputSheet) {
+            if let provider = pendingProvider, let item = pendingItem, let inputs = item.inputs, !inputs.isEmpty {
+                WorkspaceProviderInputSheet(
+                    providerName: provider.name,
+                    itemName: item.name,
+                    inputs: inputs,
+                    values: $inputValues,
+                    onCancel: {
+                        showingInputSheet = false
+                        pendingProvider = nil
+                        pendingItem = nil
+                        inputValues = [:]
+                    },
+                    onCreate: {
+                        showingInputSheet = false
+                        startCreate(provider: provider, item: item, inputs: inputValues)
+                        inputValues = [:]
+                    }
+                )
+            }
+        }
+        .alert(
+            String(localized: "sidebar.newWorkspace.error.title", defaultValue: "Workspace Creation Failed"),
+            isPresented: $showingError
+        ) {
+            Button(String(localized: "sidebar.newWorkspace.error.ok", defaultValue: "OK")) {}
+        } message: {
+            Text(errorMessage)
+        }
+    }
+
+    @ViewBuilder
+    private var newWorkspaceMenu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Default new workspace
+            Button {
+                isPopoverPresented = false
+                tabManager.addWorkspace(placementOverride: .end)
+            } label: {
+                HStack {
+                    Text(String(localized: "sidebar.newWorkspace.default", defaultValue: "New Workspace"))
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            // Provider sections
+            if !providerStore.providers.isEmpty {
+                Divider()
+                    .padding(.vertical, 4)
+
+                ForEach(providerStore.providers, id: \.id) { provider in
+                    providerSection(provider)
+                }
+            }
+
+            // Show progress if creating
+            if let progress = createProgressMessage {
+                Divider()
+                    .padding(.vertical, 4)
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(progress)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+            }
+        }
+        .padding(.vertical, 6)
+        .frame(minWidth: 200)
+    }
+
+    @ViewBuilder
+    private func providerSection(_ provider: WorkspaceProviderDefinition) -> some View {
+        Text(provider.name)
+            .font(.caption)
+            .fontWeight(.semibold)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 2)
+
+        let items = providerStore.cachedItems[provider.id] ?? []
+        if items.isEmpty && isLoadingProviders {
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(String(localized: "sidebar.newWorkspace.loading", defaultValue: "Loading…"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+        } else if items.isEmpty {
+            Text(String(localized: "sidebar.newWorkspace.noItems", defaultValue: "No items"))
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+        } else {
+            ForEach(items) { item in
+                Button {
+                    isPopoverPresented = false
+                    handleItemSelected(provider: provider, item: item)
+                } label: {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.name)
+                        if let subtitle = item.subtitle {
+                            Text(subtitle)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func fetchProviderItems() {
+        guard !providerStore.providers.isEmpty else { return }
+        isLoadingProviders = true
+        Task {
+            for provider in providerStore.providers {
+                _ = await providerStore.fetchItems(for: provider)
+            }
+            isLoadingProviders = false
+        }
+    }
+
+    private func handleItemSelected(provider: WorkspaceProviderDefinition, item: WorkspaceProviderItem) {
+        if let inputs = item.inputs, !inputs.isEmpty {
+            pendingProvider = provider
+            pendingItem = item
+            inputValues = [:]
+            showingInputSheet = true
+        } else {
+            startCreate(provider: provider, item: item, inputs: [:])
+        }
+    }
+
+    private func startCreate(provider: WorkspaceProviderDefinition, item: WorkspaceProviderItem, inputs: [String: String]) {
+        activeCreateTask?.cancel()
+        createProgressMessage = String(localized: "sidebar.newWorkspace.creating", defaultValue: "Creating…")
+
+        activeCreateTask = Task {
+            do {
+                let result = try await providerStore.create(
+                    provider: provider,
+                    itemId: item.id,
+                    inputs: inputs,
+                    progressHandler: { message in
+                        createProgressMessage = message
+                    }
+                )
+                createProgressMessage = nil
+                createWorkspaceFromResult(result)
+            } catch {
+                createProgressMessage = nil
+                errorMessage = error.localizedDescription
+                showingError = true
+            }
+        }
+    }
+
+    private func createWorkspaceFromResult(_ result: WorkspaceProviderCreateResult) {
+        let ws = tabManager.addWorkspace(
+            title: result.title,
+            workingDirectory: result.cwd,
+            initialTerminalEnvironment: result.env ?? [:]
+        )
+
+        if let color = result.color {
+            ws.setCustomColor(color)
+        }
+        if let title = result.title {
+            ws.setCustomTitle(title)
+        }
+
+        if let layout = result.layout {
+            let baseCwd = result.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path
+            ws.applyCustomLayout(layout, baseCwd: baseCwd)
+        }
+    }
+}
+
+// MARK: - Provider Input Sheet
+
+private struct WorkspaceProviderInputSheet: View {
+    let providerName: String
+    let itemName: String
+    let inputs: [WorkspaceProviderInput]
+    @Binding var values: [String: String]
+    let onCancel: () -> Void
+    let onCreate: () -> Void
+
+    @FocusState private var focusedInputId: String?
+
+    private var isValid: Bool {
+        inputs.allSatisfy { input in
+            if input.isRequired {
+                let val = values[input.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return !val.isEmpty
+            }
+            return true
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(itemName)
+                .font(.headline)
+
+            ForEach(inputs) { input in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 2) {
+                        Text(input.label)
+                            .font(.subheadline)
+                        if input.isRequired {
+                            Text("*")
+                                .foregroundStyle(.red)
+                        }
+                    }
+                    TextField(
+                        input.placeholder ?? "",
+                        text: Binding(
+                            get: { values[input.id] ?? "" },
+                            set: { values[input.id] = $0 }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focusedInputId, equals: input.id)
+                    .onSubmit {
+                        if isValid { onCreate() }
+                    }
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button(String(localized: "sidebar.newWorkspace.input.cancel", defaultValue: "Cancel")) {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+                Button(String(localized: "sidebar.newWorkspace.input.create", defaultValue: "Create")) {
+                    onCreate()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!isValid)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 320)
+        .onAppear {
+            focusedInputId = inputs.first?.id
         }
     }
 }
