@@ -8752,6 +8752,12 @@ struct VerticalTabsSidebar: View {
                             // Pending workspaces (being created by providers)
                             ForEach(tabManager.pendingWorkspaces) { pending in
                                 PendingWorkspaceItemView(pending: pending, onDismiss: {
+                                    // Call provider destroy to clean up (e.g. remove orphaned worktree)
+                                    if let origin = pending.providerOrigin {
+                                        Task {
+                                            await WorkspaceProviderExecutor.runDestroy(origin: origin)
+                                        }
+                                    }
                                     tabManager.pendingWorkspaces.removeAll { $0.id == pending.id }
                                 })
                             }

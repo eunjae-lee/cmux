@@ -653,6 +653,8 @@ final class PendingWorkspace: ObservableObject, Identifiable {
     let title: String
     let providerId: String
     let itemId: String
+    /// Stored so we can call destroy on dismiss after failure.
+    var providerOrigin: WorkspaceProviderOrigin?
     @Published var progress: String
     @Published var logLines: [String] = []
     @Published var state: State = .loading

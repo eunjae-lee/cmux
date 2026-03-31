@@ -1732,6 +1732,14 @@ private struct TitlebarNewWorkspaceMenuButton: View {
             providerId: provider.id,
             itemId: item.id
         )
+        // Store origin so we can call destroy if creation fails and user dismisses
+        pending.providerOrigin = WorkspaceProviderOrigin(
+            providerId: provider.id,
+            destroyCommand: provider.destroy,
+            itemId: item.id,
+            inputs: inputs,
+            cwd: nil  // will be set if we can extract it from progress/error
+        )
         tabManager.pendingWorkspaces.append(pending)
 
         activeCreateTask?.cancel()
