@@ -3604,7 +3604,7 @@ final class WorkspaceRemoteSessionController {
             }
             proxyEndpoint = endpoint
             publishProxyEndpoint(endpoint)
-            startRemotePortPollingLocked()
+            updateRemotePortPollingStateLocked()
             publishPortsSnapshotLocked()
             publishState(
                 .connected,
@@ -4941,6 +4941,7 @@ final class WorkspaceRemoteSessionController {
         guard remotePortScanTTYNames != nextTTYNames else { return }
         remotePortScanTTYNames = nextTTYNames
         remoteScannedPortsByPanel = remoteScannedPortsByPanel.filter { remotePortScanTTYNames[$0.key] != nil }
+        updateRemotePortPollingStateLocked()
         publishPortsSnapshotLocked()
     }
 
@@ -5029,6 +5030,7 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func startRemotePortPollingLocked() {
+        guard remotePortScanTTYNames.isEmpty else { return }
         guard remotePortPollTimer == nil else { return }
 
         let timer = DispatchSource.makeTimerSource(queue: queue)
@@ -5047,9 +5049,24 @@ final class WorkspaceRemoteSessionController {
         remotePortPollTimer = nil
     }
 
+    private func updateRemotePortPollingStateLocked() {
+        guard daemonReady, !isStopping, remotePortScanTTYNames.isEmpty else {
+            stopRemotePortPollingLocked()
+            polledRemotePorts = []
+            return
+        }
+        startRemotePortPollingLocked()
+    }
+
     private func pollRemotePortsLocked() {
         guard !isStopping else { return }
         guard daemonReady else { return }
+        guard remotePortScanTTYNames.isEmpty else {
+            stopRemotePortPollingLocked()
+            polledRemotePorts = []
+            publishPortsSnapshotLocked()
+            return
+        }
 
         let command = "sh -c \(Self.shellSingleQuoted(Self.remoteAllPortsScanScript(excluding: excludedRemoteScanPorts())))"
         do {

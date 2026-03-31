@@ -42,6 +42,68 @@ _cmux_send_bg() {
     fi
 }
 
+_cmux_socket_is_unix() {
+    [[ -n "$CMUX_SOCKET_PATH" && -S "$CMUX_SOCKET_PATH" ]]
+}
+
+_cmux_socket_uses_remote_relay() {
+    [[ -n "$CMUX_SOCKET_PATH" ]] || return 1
+    [[ "$CMUX_SOCKET_PATH" == /* ]] && return 1
+    [[ "$CMUX_SOCKET_PATH" == *:* ]] || return 1
+    command -v cmux >/dev/null 2>&1
+}
+
+_cmux_has_port_scan_transport() {
+    _cmux_socket_is_unix && return 0
+    _cmux_socket_uses_remote_relay
+}
+
+_cmux_json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    print -r -- "$value"
+}
+
+_cmux_relay_rpc_bg() {
+    local method="$1"
+    local params="$2"
+    _cmux_socket_uses_remote_relay || return 1
+    { command cmux rpc "$method" "$params" >/dev/null 2>&1 || true } >/dev/null 2>&1 &!
+}
+
+_cmux_relay_rpc() {
+    local method="$1"
+    local params="$2"
+    _cmux_socket_uses_remote_relay || return 1
+    command cmux rpc "$method" "$params" >/dev/null 2>&1
+}
+
+_cmux_report_tty_via_relay() {
+    _cmux_socket_uses_remote_relay || return 1
+    [[ -n "$CMUX_TAB_ID" ]] || return 1
+    [[ -n "$_CMUX_TTY_NAME" ]] || return 1
+
+    local tty_name_json params
+    tty_name_json="$(_cmux_json_escape "$_CMUX_TTY_NAME")"
+    params="{\"workspace_id\":\"$CMUX_TAB_ID\",\"tty_name\":\"$tty_name_json\""
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc "surface.report_tty" "$params"
+}
+
+_cmux_ports_kick_via_relay() {
+    _cmux_socket_uses_remote_relay || return 1
+    [[ -n "$CMUX_TAB_ID" ]] || return 1
+    [[ -n "$CMUX_PANEL_ID" ]] || return 1
+    _cmux_relay_rpc_bg "surface.ports_kick" "{\"workspace_id\":\"$CMUX_TAB_ID\",\"surface_id\":\"$CMUX_PANEL_ID\"}"
+}
+
 _cmux_restore_scrollback_once() {
     local path="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
     [[ -n "$path" ]] || return 0
@@ -349,14 +411,19 @@ _cmux_report_tty_once() {
     # Send the TTY name to the app once per session so the batched port scanner
     # knows which TTY belongs to this panel.
     (( _CMUX_TTY_REPORTED )) && return 0
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    _cmux_has_port_scan_transport || return 0
 
     local payload=""
     payload="$(_cmux_report_tty_payload)"
     [[ -n "$payload" ]] || return 0
 
-    _CMUX_TTY_REPORTED=1
-    _cmux_send_bg "$payload"
+    if _cmux_socket_is_unix; then
+        _CMUX_TTY_REPORTED=1
+        _cmux_send_bg "$payload"
+    else
+        _cmux_report_tty_via_relay || return 0
+        _CMUX_TTY_REPORTED=1
+    fi
 }
 
 _cmux_report_shell_activity_state() {
@@ -412,11 +479,15 @@ _cmux_report_tmux_state() {
 _cmux_ports_kick() {
     # Lightweight: just tell the app to run a batched scan for this panel.
     # The app coalesces kicks across all panels and runs a single ps+lsof.
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     _CMUX_PORTS_LAST_RUN=$EPOCHSECONDS
-    _cmux_send_bg "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    if _cmux_socket_is_unix; then
+        _cmux_send_bg "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    else
+        _cmux_ports_kick_via_relay
+    fi
 }
 
 _cmux_report_git_branch_for_path() {
@@ -729,8 +800,9 @@ _cmux_precmd() {
     _cmux_stop_git_head_watch
     _cmux_tmux_sync_cmux_environment
 
-    # Skip if socket doesn't exist yet
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    local cmux_has_unix_socket=0
+    _cmux_socket_is_unix && cmux_has_unix_socket=1
+    (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
 
     # Handle cases where Ghostty integration initializes after this file.
@@ -748,6 +820,8 @@ _cmux_precmd() {
     fi
     _cmux_report_tmux_state
     _cmux_report_tty_once
+
+    (( cmux_has_unix_socket )) || return 0
 
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
