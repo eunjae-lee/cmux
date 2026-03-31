@@ -253,6 +253,7 @@ struct TitlebarControlButton<Content: View>: View {
 struct TitlebarControlsView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @ObservedObject var viewModel: TitlebarControlsViewModel
+    @ObservedObject var workspaceProviderStore: WorkspaceProviderStore
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
@@ -396,14 +397,11 @@ struct TitlebarControlsView: View {
             .accessibilityLabel(String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications"))
             .safeHelp(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
 
-            TitlebarControlButton(config: config, action: {
-                #if DEBUG
-                dlog("titlebar.newTab")
-                #endif
-                onNewTab()
-            }) {
-                iconLabel(systemName: "plus", config: config)
-            }
+            TitlebarNewWorkspaceMenuButton(
+                config: config,
+                providerStore: workspaceProviderStore,
+                onNewTab: onNewTab
+            )
             .accessibilityIdentifier("titlebarControl.newTab")
             .accessibilityLabel(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"))
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
@@ -549,6 +547,7 @@ struct TitlebarControlsView: View {
 
 struct HiddenTitlebarSidebarControlsView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
+    @EnvironmentObject var workspaceProviderStore: WorkspaceProviderStore
     @StateObject private var viewModel = TitlebarControlsViewModel()
 
     private let hostWidth: CGFloat = 124
@@ -558,6 +557,7 @@ struct HiddenTitlebarSidebarControlsView: View {
         TitlebarControlsView(
             notificationStore: notificationStore,
             viewModel: viewModel,
+            workspaceProviderStore: workspaceProviderStore,
             onToggleSidebar: { _ = AppDelegate.shared?.sidebarState?.toggle() },
             onToggleNotifications: { [viewModel] in
                 AppDelegate.shared?.toggleNotificationsPopover(
@@ -785,7 +785,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
-    init(notificationStore: TerminalNotificationStore) {
+    init(notificationStore: TerminalNotificationStore, workspaceProviderStore: WorkspaceProviderStore) {
         self.notificationStore = notificationStore
         let toggleSidebar = { _ = AppDelegate.shared?.sidebarState?.toggle() }
         let toggleNotifications: () -> Void = { _ = AppDelegate.shared?.toggleNotificationsPopover(animated: true) }
@@ -795,6 +795,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             rootView: TitlebarControlsView(
                 notificationStore: notificationStore,
                 viewModel: viewModel,
+                workspaceProviderStore: workspaceProviderStore,
                 onToggleSidebar: toggleSidebar,
                 onToggleNotifications: toggleNotifications,
                 onNewTab: newTab,
@@ -1210,6 +1211,7 @@ private struct NotificationPopoverRow: View {
 @MainActor
 final class UpdateTitlebarAccessoryController {
     private weak var updateViewModel: UpdateViewModel?
+    let workspaceProviderStore: WorkspaceProviderStore
     private var didStart = false
     private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
     private var observers: [NSObjectProtocol] = []
@@ -1219,8 +1221,9 @@ final class UpdateTitlebarAccessoryController {
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
 
-    init(viewModel: UpdateViewModel) {
+    init(viewModel: UpdateViewModel, workspaceProviderStore: WorkspaceProviderStore) {
         self.updateViewModel = viewModel
+        self.workspaceProviderStore = workspaceProviderStore
     }
 
     deinit {
@@ -1367,7 +1370,8 @@ final class UpdateTitlebarAccessoryController {
 
         if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
             let controls = TitlebarControlsAccessoryViewController(
-                notificationStore: TerminalNotificationStore.shared
+                notificationStore: TerminalNotificationStore.shared,
+                workspaceProviderStore: workspaceProviderStore
             )
             controls.layoutAttribute = .left
             controls.view.identifier = controlsIdentifier
@@ -1505,5 +1509,234 @@ final class UpdateTitlebarAccessoryController {
             return
         }
         target.toggleNotificationsPopover(animated: animated)
+    }
+}
+
+// MARK: - Titlebar New Workspace Menu Button
+
+private struct TitlebarNewWorkspaceMenuButton: View {
+    let config: TitlebarControlsStyleConfig
+    @ObservedObject var providerStore: WorkspaceProviderStore
+    let onNewTab: () -> Void
+    @State private var isHovering = false
+    @State private var isMenuPresented = false
+    @State private var showingInputSheet = false
+    @State private var pendingProvider: WorkspaceProviderDefinition?
+    @State private var pendingItem: WorkspaceProviderItem?
+    @State private var inputValues: [String: String] = [:]
+    @State private var showingError = false
+    @State private var errorMessage = ""
+    @State private var activeCreateTask: Task<Void, Never>?
+    @State private var menuAnchorView: NSView?
+
+    var body: some View {
+        let hasProviders = !providerStore.providers.isEmpty
+        let _ = prefetchIfNeeded()
+
+        TitlebarControlButton(config: config, action: {
+            if hasProviders {
+                showMenu()
+            } else {
+                onNewTab()
+            }
+        }) {
+            Image(systemName: "plus")
+                .font(.system(size: config.iconSize, weight: .semibold))
+                .frame(width: config.buttonSize, height: config.buttonSize)
+                .background(MenuAnchorView(anchorViewRef: $menuAnchorView))
+        }
+        .sheet(isPresented: $showingInputSheet) {
+            if let provider = pendingProvider, let item = pendingItem, let inputs = item.inputs, !inputs.isEmpty {
+                WorkspaceProviderInputSheet(
+                    providerName: provider.name,
+                    itemName: item.name,
+                    inputs: inputs,
+                    values: $inputValues,
+                    onCancel: {
+                        showingInputSheet = false
+                        pendingProvider = nil
+                        pendingItem = nil
+                        inputValues = [:]
+                    },
+                    onCreate: {
+                        showingInputSheet = false
+                        startCreate(provider: provider, item: item, inputs: inputValues)
+                        inputValues = [:]
+                    }
+                )
+            }
+        }
+        .alert(
+            String(localized: "sidebar.newWorkspace.error.title", defaultValue: "Workspace Creation Failed"),
+            isPresented: $showingError
+        ) {
+            Button(String(localized: "sidebar.newWorkspace.error.ok", defaultValue: "OK")) {}
+        } message: {
+            Text(errorMessage)
+        }
+    }
+
+    private func showMenu() {
+        let menu = NSMenu()
+
+        // Default new workspace
+        let newItem = NSMenuItem(
+            title: String(localized: "sidebar.newWorkspace.default", defaultValue: "New Workspace"),
+            action: #selector(TitlebarMenuTarget.newWorkspaceAction(_:)),
+            keyEquivalent: ""
+        )
+        let target = TitlebarMenuTarget(onNewTab: onNewTab)
+        newItem.target = target
+        newItem.representedObject = target // prevent deallocation
+        menu.addItem(newItem)
+
+        // Provider items
+        for provider in providerStore.providers {
+            menu.addItem(NSMenuItem.separator())
+
+            let header = NSMenuItem(title: provider.name, action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+
+            let items = providerStore.cachedItems[provider.id] ?? []
+            if items.isEmpty {
+                // Trigger a fetch
+                Task {
+                    _ = await providerStore.fetchItems(for: provider)
+                }
+                let loading = NSMenuItem(
+                    title: String(localized: "sidebar.newWorkspace.loading", defaultValue: "Loading…"),
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                loading.isEnabled = false
+                menu.addItem(loading)
+            } else {
+                for item in items {
+                    let menuItem = NSMenuItem(
+                        title: item.name,
+                        action: #selector(TitlebarMenuTarget.providerItemAction(_:)),
+                        keyEquivalent: ""
+                    )
+                    let itemTarget = TitlebarMenuTarget(
+                        onNewTab: onNewTab,
+                        onSelectItem: { [provider, item] in
+                            handleItemSelected(provider: provider, item: item)
+                        }
+                    )
+                    menuItem.target = itemTarget
+                    menuItem.representedObject = itemTarget
+                    if let subtitle = item.subtitle {
+                        menuItem.toolTip = subtitle
+                    }
+                    menu.addItem(menuItem)
+                }
+            }
+        }
+
+        // Show menu anchored below the "+" button
+        if let anchorView = menuAnchorView {
+            let point = NSPoint(x: 0, y: anchorView.bounds.maxY)
+            menu.popUp(positioning: nil, at: point, in: anchorView)
+        } else if let event = NSApp.currentEvent, let window = event.window {
+            let location = NSPoint(x: event.locationInWindow.x - 10, y: event.locationInWindow.y - 5)
+            menu.popUp(positioning: nil, at: location, in: window.contentView)
+        }
+    }
+
+    private func prefetchIfNeeded() {
+        for provider in providerStore.providers {
+            if providerStore.cachedItems[provider.id] == nil {
+                Task {
+                    _ = await providerStore.fetchItems(for: provider)
+                }
+            }
+        }
+    }
+
+    private func handleItemSelected(provider: WorkspaceProviderDefinition, item: WorkspaceProviderItem) {
+        if let inputs = item.inputs, !inputs.isEmpty {
+            pendingProvider = provider
+            pendingItem = item
+            inputValues = [:]
+            showingInputSheet = true
+        } else {
+            startCreate(provider: provider, item: item, inputs: [:])
+        }
+    }
+
+    private func startCreate(provider: WorkspaceProviderDefinition, item: WorkspaceProviderItem, inputs: [String: String]) {
+        activeCreateTask?.cancel()
+        activeCreateTask = Task {
+            do {
+                let result = try await providerStore.create(
+                    provider: provider,
+                    itemId: item.id,
+                    inputs: inputs,
+                    progressHandler: { _ in }
+                )
+                createWorkspaceFromResult(result)
+            } catch {
+                errorMessage = error.localizedDescription
+                showingError = true
+            }
+        }
+    }
+
+    private func createWorkspaceFromResult(_ result: WorkspaceProviderCreateResult) {
+        guard let tabManager = AppDelegate.shared?.tabManager else { return }
+        let ws = tabManager.addWorkspace(
+            title: result.title,
+            workingDirectory: result.cwd,
+            initialTerminalEnvironment: result.env ?? [:]
+        )
+
+        if let color = result.color {
+            ws.setCustomColor(color)
+        }
+        if let title = result.title {
+            ws.setCustomTitle(title)
+        }
+
+        if let layout = result.layout {
+            let baseCwd = result.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path
+            ws.applyCustomLayout(layout, baseCwd: baseCwd)
+        }
+    }
+}
+
+/// Captures an NSView reference for menu anchoring.
+private struct MenuAnchorView: NSViewRepresentable {
+    @Binding var anchorViewRef: NSView?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { anchorViewRef = view }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if anchorViewRef !== nsView {
+            DispatchQueue.main.async { anchorViewRef = nsView }
+        }
+    }
+}
+
+/// NSMenu action target for titlebar workspace menu.
+@objc private final class TitlebarMenuTarget: NSObject {
+    let onNewTab: () -> Void
+    var onSelectItem: (() -> Void)?
+
+    init(onNewTab: @escaping () -> Void, onSelectItem: (() -> Void)? = nil) {
+        self.onNewTab = onNewTab
+        self.onSelectItem = onSelectItem
+    }
+
+    @objc func newWorkspaceAction(_ sender: Any?) {
+        onNewTab()
+    }
+
+    @objc func providerItemAction(_ sender: Any?) {
+        onSelectItem?()
     }
 }

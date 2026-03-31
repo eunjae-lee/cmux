@@ -1,5 +1,8 @@
 import Combine
 import Foundation
+#if DEBUG
+import Bonsplit
+#endif
 
 // MARK: - Provider Configuration
 
@@ -84,7 +87,9 @@ final class WorkspaceProviderStore: ObservableObject {
             cachedItems[provider.id] = items
             return items
         } catch {
+            #if DEBUG
             dlog("workspace_provider.list.error provider=\(provider.id) error=\(error.localizedDescription)")
+            #endif
             return cachedItems[provider.id] ?? []
         }
     }
@@ -187,7 +192,7 @@ enum WorkspaceProviderExecutor {
         } catch let error as WorkspaceProviderError {
             throw error
         } catch {
-            throw WorkspaceProviderError.createParseFailed(error.localizedDescription)
+            throw WorkspaceProviderError.createParseFailed("\(error.localizedDescription)\nRaw JSON line: \(jsonLine.trimmingCharacters(in: .whitespacesAndNewlines))")
         }
     }
 

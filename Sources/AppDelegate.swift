@@ -2189,7 +2189,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
     private let updateController = UpdateController()
-    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
+    let workspaceProviderStoreForTitlebar = WorkspaceProviderStore()
+    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel, workspaceProviderStore: workspaceProviderStoreForTitlebar)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
     private static let serviceErrorNoPath = NSString(string: String(localized: "error.clipboardFolderPath", defaultValue: "Could not load any folder path from the clipboard."))
@@ -6085,7 +6086,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let notificationStore = TerminalNotificationStore.shared
 
         let cmuxConfigStore = CmuxConfigStore()
-        let workspaceProviderStore = WorkspaceProviderStore()
+        let workspaceProviderStore = workspaceProviderStoreForTitlebar
         cmuxConfigStore.onProvidersChanged = { [weak workspaceProviderStore] providers in
             workspaceProviderStore?.updateProviders(providers)
         }

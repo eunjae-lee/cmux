@@ -140,6 +140,10 @@ struct cmuxApp: App {
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var sidebarSelectionState = SidebarSelectionState()
     @StateObject private var cmuxConfigStore = CmuxConfigStore()
+    // Shared with AppDelegate so the titlebar "+" button and SwiftUI views see the same providers.
+    private var workspaceProviderStore: WorkspaceProviderStore {
+        appDelegate.workspaceProviderStoreForTitlebar
+    }
     private let primaryWindowId = UUID()
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
@@ -339,6 +343,7 @@ struct cmuxApp: App {
                 .environmentObject(sidebarState)
                 .environmentObject(sidebarSelectionState)
                 .environmentObject(cmuxConfigStore)
+                .environmentObject(workspaceProviderStore)
                 .onAppear {
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
@@ -348,6 +353,9 @@ struct cmuxApp: App {
                     // Start the Unix socket controller for programmatic access
                     updateSocketController()
                     appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+                    cmuxConfigStore.onProvidersChanged = { [weak workspaceProviderStore] providers in
+                        workspaceProviderStore?.updateProviders(providers)
+                    }
                     cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
                     cmuxConfigStore.loadAll()
                     applyAppearance()
