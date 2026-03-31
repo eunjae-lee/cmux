@@ -5642,12 +5642,14 @@ extension TabManager {
         }
 
         // Determine selection before mutating @Published properties.
+        // Avoid selecting a suspended (provider) workspace — pick the first non-suspended one.
         let newSelectedId: UUID?
         if let selectedWorkspaceIndex = snapshot.selectedWorkspaceIndex,
-           newTabs.indices.contains(selectedWorkspaceIndex) {
+           newTabs.indices.contains(selectedWorkspaceIndex),
+           !newTabs[selectedWorkspaceIndex].isSuspended {
             newSelectedId = newTabs[selectedWorkspaceIndex].id
         } else {
-            newSelectedId = newTabs.first?.id
+            newSelectedId = newTabs.first(where: { !$0.isSuspended })?.id ?? newTabs.first?.id
         }
 
         // Single atomic assignment of @Published properties so SwiftUI observers
