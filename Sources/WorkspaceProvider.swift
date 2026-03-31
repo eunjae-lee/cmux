@@ -31,6 +31,10 @@ struct WorkspaceProviderInput: Codable, Identifiable {
     var label: String
     var placeholder: String?
     var required: Bool?
+    /// When set, this field auto-derives its value from another input by slugifying it.
+    /// The value is the id of the source input (e.g. "session").
+    /// User can still override the derived value.
+    var deriveFrom: String?
 
     var isRequired: Bool { required ?? false }
 }

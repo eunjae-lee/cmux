@@ -10471,15 +10471,25 @@ struct WorkspaceProviderInputSheet: View {
     let onCreate: () -> Void
 
     @FocusState private var focusedInputId: String?
+    @State private var localValues: [String: String] = [:]
+    /// Tracks which derived fields the user has manually edited.
+    @State private var manuallyEdited: Set<String> = []
 
     private var isValid: Bool {
         inputs.allSatisfy { input in
             if input.isRequired {
-                let val = values[input.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let val = localValues[input.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 return !val.isEmpty
             }
             return true
         }
+    }
+
+    private static func slugify(_ s: String) -> String {
+        s.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
     var body: some View {
@@ -10499,15 +10509,15 @@ struct WorkspaceProviderInputSheet: View {
                     }
                     TextField(
                         input.placeholder ?? "",
-                        text: Binding(
-                            get: { values[input.id] ?? "" },
-                            set: { values[input.id] = $0 }
-                        )
+                        text: bindingForInput(input)
                     )
                     .textFieldStyle(.roundedBorder)
                     .focused($focusedInputId, equals: input.id)
                     .onSubmit {
-                        if isValid { onCreate() }
+                        if isValid {
+                            values = localValues
+                            onCreate()
+                        }
                     }
                 }
             }
@@ -10519,6 +10529,7 @@ struct WorkspaceProviderInputSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 Button(String(localized: "sidebar.newWorkspace.input.create", defaultValue: "Create")) {
+                    values = localValues
                     onCreate()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -10528,7 +10539,32 @@ struct WorkspaceProviderInputSheet: View {
         .padding(20)
         .frame(minWidth: 320)
         .onAppear {
+            localValues = values
             focusedInputId = inputs.first?.id
+        }
+    }
+
+    private func bindingForInput(_ input: WorkspaceProviderInput) -> Binding<String> {
+        let inputId = input.id
+        let hasDeriveFrom = input.deriveFrom != nil
+        return Binding(
+            get: { localValues[inputId] ?? "" },
+            set: { newValue in
+                localValues[inputId] = newValue
+                if hasDeriveFrom && focusedInputId == inputId {
+                    manuallyEdited.insert(inputId)
+                }
+                updateDerivedFields(sourceId: inputId)
+            }
+        )
+    }
+
+    private func updateDerivedFields(sourceId: String) {
+        let sourceValue = localValues[sourceId] ?? ""
+        for input in inputs {
+            guard input.deriveFrom == sourceId else { continue }
+            guard !manuallyEdited.contains(input.id) else { continue }
+            localValues[input.id] = Self.slugify(sourceValue)
         }
     }
 }

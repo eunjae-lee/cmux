@@ -1551,34 +1551,22 @@ private struct TitlebarNewWorkspaceMenuButton: View {
                 prefetchIfStale()
             }
         }
-        .sheet(isPresented: $showingInputSheet) {
-            if let provider = pendingProvider, let item = pendingItem, let inputs = item.inputs, !inputs.isEmpty {
-                WorkspaceProviderInputSheet(
-                    providerName: provider.name,
-                    itemName: item.name,
-                    inputs: inputs,
-                    values: $inputValues,
-                    onCancel: {
-                        showingInputSheet = false
-                        pendingProvider = nil
-                        pendingItem = nil
-                        inputValues = [:]
-                    },
-                    onCreate: {
-                        showingInputSheet = false
-                        startCreate(provider: provider, item: item, inputs: inputValues)
-                        inputValues = [:]
-                    }
-                )
+        .onChange(of: showingInputSheet) { showing in
+            if showing, let provider = pendingProvider, let item = pendingItem,
+               let inputs = item.inputs, !inputs.isEmpty {
+                showInputPanel(provider: provider, item: item, inputs: inputs)
             }
         }
-        .alert(
-            String(localized: "sidebar.newWorkspace.error.title", defaultValue: "Workspace Creation Failed"),
-            isPresented: $showingError
-        ) {
-            Button(String(localized: "sidebar.newWorkspace.error.ok", defaultValue: "OK")) {}
-        } message: {
-            Text(errorMessage)
+        .onChange(of: showingError) { showing in
+            if showing {
+                let alert = NSAlert()
+                alert.messageText = String(localized: "sidebar.newWorkspace.error.title", defaultValue: "Workspace Creation Failed")
+                alert.informativeText = errorMessage
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: String(localized: "sidebar.newWorkspace.error.ok", defaultValue: "OK"))
+                alert.runModal()
+                showingError = false
+            }
         }
     }
 
@@ -1674,6 +1662,55 @@ private struct TitlebarNewWorkspaceMenuButton: View {
         } else {
             showMenu()
         }
+    }
+
+    private func showInputPanel(provider: WorkspaceProviderDefinition, item: WorkspaceProviderItem, inputs: [WorkspaceProviderInput]) {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 0),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "\(provider.name) — \(item.name)"
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.becomesKeyOnlyIfNeeded = false
+
+        var capturedValues: [String: String] = [:]
+
+        let hostingView = NSHostingView(
+            rootView: WorkspaceProviderInputSheet(
+                providerName: provider.name,
+                itemName: item.name,
+                inputs: inputs,
+                values: Binding(
+                    get: { capturedValues },
+                    set: { capturedValues = $0 }
+                ),
+                onCancel: { [weak panel] in
+                    panel?.close()
+                    self.showingInputSheet = false
+                    self.pendingProvider = nil
+                    self.pendingItem = nil
+                    self.inputValues = [:]
+                },
+                onCreate: { [weak panel] in
+                    panel?.close()
+                    self.showingInputSheet = false
+                    self.startCreate(provider: provider, item: item, inputs: capturedValues)
+                    self.inputValues = [:]
+                }
+            )
+            .frame(minWidth: 340)
+        )
+
+        panel.contentView = hostingView
+        hostingView.needsLayout = true
+        hostingView.layoutSubtreeIfNeeded()
+        let fittingSize = hostingView.fittingSize
+        panel.setContentSize(NSSize(width: max(360, fittingSize.width), height: fittingSize.height))
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
     }
 
     private func handleItemSelected(provider: WorkspaceProviderDefinition, item: WorkspaceProviderItem) {
