@@ -2646,13 +2646,6 @@ class TabManager: ObservableObject {
         guard tabs.count > 1 else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
 
-        // Run provider destroy command if this workspace came from a provider
-        if let origin = workspace.providerOrigin {
-            Task {
-                await WorkspaceProviderExecutor.runDestroy(origin: origin)
-            }
-        }
-
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         sidebarSelectedWorkspaceIds.remove(workspace.id)
 

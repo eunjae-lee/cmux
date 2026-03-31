@@ -12279,38 +12279,35 @@ private struct TabItemView: View, Equatable {
             }
         }
 
-        // Hide regular close options for provider workspaces — use Stop/Delete instead
-        if tab.providerOrigin == nil {
-            Divider()
+        Divider()
 
-            if let key = closeWorkspaceShortcut.keyEquivalent {
-                Button(closeLabel) {
-                    closeTabs(targetIds, allowPinned: true)
-                }
-                .keyboardShortcut(key, modifiers: closeWorkspaceShortcut.eventModifiers)
-                .disabled(targetIds.isEmpty)
-            } else {
-                Button(closeLabel) {
-                    closeTabs(targetIds, allowPinned: true)
-                }
-                .disabled(targetIds.isEmpty)
+        if let key = closeWorkspaceShortcut.keyEquivalent {
+            Button(closeLabel) {
+                closeTabs(targetIds, allowPinned: true)
             }
-
-            Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
-                closeOtherTabs(targetIds)
+            .keyboardShortcut(key, modifiers: closeWorkspaceShortcut.eventModifiers)
+            .disabled(targetIds.isEmpty)
+        } else {
+            Button(closeLabel) {
+                closeTabs(targetIds, allowPinned: true)
             }
-            .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
-
-            Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
-                closeTabsBelow(tabId: tab.id)
-            }
-            .disabled(index >= tabManager.tabs.count - 1)
-
-            Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
-                closeTabsAbove(tabId: tab.id)
-            }
-            .disabled(index == 0)
+            .disabled(targetIds.isEmpty)
         }
+
+        Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
+            closeOtherTabs(targetIds)
+        }
+        .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
+
+        Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
+            closeTabsBelow(tabId: tab.id)
+        }
+        .disabled(index >= tabManager.tabs.count - 1)
+
+        Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
+            closeTabsAbove(tabId: tab.id)
+        }
+        .disabled(index == 0)
 
         Divider()
 
