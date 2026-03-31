@@ -798,6 +798,15 @@ extension Workspace {
         applyCustomLayout(layout, baseCwd: currentDirectory)
     }
 
+    /// Suspend an active provider workspace: tear down all panels to free resources.
+    func suspend() {
+        guard !isSuspended, providerOrigin != nil, suspendedLayout != nil else { return }
+        for panelId in Array(panels.keys) {
+            _ = closePanel(panelId, force: true)
+        }
+        isSuspended = true
+    }
+
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) {
         guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
 

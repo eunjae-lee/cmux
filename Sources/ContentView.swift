@@ -12239,6 +12239,36 @@ private struct TabItemView: View, Equatable {
         }
         .disabled(targetIds.isEmpty)
 
+        // Provider workspace actions
+        if tab.providerOrigin != nil {
+            Divider()
+
+            if tab.isSuspended {
+                Button(String(localized: "contextMenu.activateWorkspace", defaultValue: "Activate")) {
+                    tab.activateSuspended()
+                }
+            } else {
+                Button(String(localized: "contextMenu.suspendWorkspace", defaultValue: "Stop")) {
+                    tab.suspend()
+                    // If this was the selected workspace, switch to another
+                    if tabManager.selectedTabId == tab.id {
+                        if let active = tabManager.tabs.first(where: { !$0.isSuspended && $0.id != tab.id }) {
+                            tabManager.selectWorkspace(active)
+                        }
+                    }
+                }
+            }
+
+            Button(String(localized: "contextMenu.deleteProviderWorkspace", defaultValue: "Delete")) {
+                if let origin = tab.providerOrigin {
+                    Task {
+                        await WorkspaceProviderExecutor.runDestroy(origin: origin)
+                    }
+                }
+                closeTabs(targetIds, allowPinned: true)
+            }
+        }
+
         Divider()
 
         if let key = closeWorkspaceShortcut.keyEquivalent {
