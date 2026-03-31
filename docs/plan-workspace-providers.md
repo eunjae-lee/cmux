@@ -2,24 +2,27 @@
 
 ## Current Status
 
-| Phase | Status | Notes |
-|-------|--------|-------|
-| Phase 6: Extension Protocol (cmux side) | ✅ Done | |
-| Phase 1: "+" Dropdown + Provider Integration | ✅ Done | Titlebar "+" button with NSMenu |
-| Phase 2: Simple Non-Worktree Project | ✅ Done | cmux-worktree provider |
-| Phase 3: Suspended Tabs | ✅ Done | `suspended: true` on surfaces |
-| Phase 4: Worktree Support | ✅ Done | git worktree create/destroy |
-| Phase 5: Workflows | ✅ Done | Per-project workflows with branch_from |
-
-### Future work
-
 All planned features are implemented.
+
+| Phase | Status |
+|-------|--------|
+| Extension Protocol | ✅ |
+| "+" Dropdown + Provider Integration | ✅ |
+| Simple Non-Worktree Project | ✅ |
+| Suspended Tabs | ✅ |
+| Worktree Support | ✅ |
+| Workflows | ✅ |
+| Pending Workspace + Progress | ✅ |
+| Live Terminal Setup | ✅ |
+| Destroy on Close | ✅ |
+| Session Restore (Suspended) | ✅ |
+| Context Menu (Stop/Delete) | ✅ |
 
 ---
 
 ## Overview
 
-An extension point in cmux so external tools can inject items into the workspace creation flow. The "+" button in the titlebar shows a dropdown: "New Workspace" (default) plus items from registered providers. Clicking a provider item runs the provider's setup flow and creates a workspace from its output.
+An extension point in cmux so external tools can inject items into the workspace creation flow. The "+" button in the titlebar shows a dropdown: "New Workspace" (default) plus items from registered providers. Clicking a provider item runs the provider's setup flow in a live terminal and creates a workspace from its output.
 
 cmux doesn't know about git, worktrees, or workflows. It just calls the provider and gets back a workspace definition.
 
@@ -50,8 +53,8 @@ Per-project `.cmux/cmux.json` can also define providers (merged with global).
 | `id` | string | Unique ID for the provider |
 | `name` | string | Display name (shown in menu header) |
 | `list` | string | Shell command that outputs JSON list of items |
-| `create` | string | Shell command that sets up and outputs workspace config |
-| `destroy` | string? | Shell command called when a provider-created workspace is closed |
+| `create` | string | Shell command that runs in a live terminal |
+| `destroy` | string? | Shell command called when a provider workspace is deleted |
 
 ### Protocol
 
@@ -97,15 +100,15 @@ Called on hover over "+" (with 10s TTL cache). Must respond quickly (<2s).
 
 #### `create` command
 
-Runs in a live terminal. cmux sets `CMUX_PROVIDER_OUTPUT` env var to a temp file path. The provider writes the workspace definition JSON to that file on success.
+Runs in a live terminal so the user can watch setup in real time. cmux sets `CMUX_PROVIDER_OUTPUT` env var to a temp file path. The provider writes the workspace definition JSON to that file on success.
 
 ```bash
 CMUX_PROVIDER_OUTPUT=/tmp/cmux-provider-xxx.json provider create --id my-project::blank --input session=feature-x --input branch=feature-x
 ```
 
-All stdout/stderr goes to the terminal naturally — no special protocol needed. The user watches setup in real time.
+All stdout/stderr goes to the terminal naturally — no special protocol needed.
 
-**On success:** provider writes JSON to `$CMUX_PROVIDER_OUTPUT`, cmux reads it and applies the layout.
+**On success:** provider writes JSON to `$CMUX_PROVIDER_OUTPUT`, cmux reads it and applies the layout (closes setup terminal, creates configured tabs/splits).
 
 **On failure:** provider exits with non-zero, no output file written. User is left in the terminal to investigate.
 
@@ -123,20 +126,32 @@ All stdout/stderr goes to the terminal naturally — no special protocol needed.
     "CMUX_PROVIDER_BRANCH": "feature-x"
   },
   "layout": {
-    "pane": {
-      "surfaces": [
-        { "type": "terminal", "name": "Shell" },
-        { "type": "terminal", "name": "Git", "command": "lazygit", "suspended": true },
-        { "type": "browser", "name": "Preview", "url": "http://localhost:3000" }
-      ]
-    }
+    "direction": "horizontal",
+    "split": 0.6,
+    "children": [
+      {
+        "pane": {
+          "surfaces": [
+            { "type": "terminal", "name": "Shell" },
+            { "type": "terminal", "name": "Git", "command": "lazygit", "suspended": true }
+          ]
+        }
+      },
+      {
+        "pane": {
+          "surfaces": [
+            { "type": "terminal", "name": "Dev", "command": "bun run dev", "suspended": true }
+          ]
+        }
+      }
+    ]
   }
 }
 ```
 
 #### `destroy` command
 
-Called when a provider-created workspace is closed. Runs async in background.
+Called when a provider workspace is **deleted** (via context menu "Delete Workspace"). Runs async in background. NOT called on regular close or stop.
 
 ```bash
 provider destroy --id my-project::blank --cwd /path/to/worktree --input session=feature-x --input branch=feature-x
@@ -159,15 +174,27 @@ Used for cleanup: removing git worktrees, freeing ports, etc. Failures are logge
 
 ### Suspended mode
 
-When `suspended: true` and `command` is set, the terminal shows:
+When `suspended: true` and `command` is set, the terminal shows a clean screen with:
 
 ```
 ▶ Press Enter to run: lazygit
 ```
 
-The screen is cleared first. Pressing Enter runs the command. When the command exits (Ctrl-C, crash, or normal quit), the prompt returns. Press Enter to re-run.
+Pressing Enter runs the command. When the command exits (Ctrl-C, crash, or normal quit), the screen clears and the prompt returns. Press Enter to re-run.
+
+### Input field options
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Field identifier (passed as `--input id=value`) |
+| `label` | string | Display label |
+| `placeholder` | string? | Placeholder text |
+| `required` | bool? | Whether the field must be filled |
+| `deriveFrom` | string? | Auto-fill by slugifying another field's value |
 
 ## UX Flow
+
+### Creating a workspace
 
 ```
 User hovers "+" in titlebar
@@ -202,85 +229,54 @@ User clicks "cmux — Blank"
       └──────────────────────────┘
 
 User clicks Create
-  → Pending workspace appears in sidebar with spinner + progress
-  → ⓘ button opens log panel showing all progress lines
-  → On success → real workspace replaces pending, tabs/splits load
-  → On failure → pending shows error with ⚠️ icon and ✕ dismiss
-
-User closes workspace
-  → cmux calls destroy command in background
-  → Provider cleans up (removes worktree, etc.)
+  → Workspace appears with a live setup terminal
+  → User watches git worktree creation, dependency install, etc.
+  → On success (output file written) → setup terminal replaced with configured layout
+  → On failure (non-zero exit) → user is in the terminal to investigate
 ```
+
+### Workspace lifecycle
+
+Provider workspaces have three context menu actions:
+
+- **Stop** — suspends the workspace: tears down all terminals, dims in sidebar (40% opacity), frees resources. Click to re-activate.
+- **Delete Workspace** — confirmation dialog → calls provider `destroy` command (removes git worktree) → closes workspace.
+- **Activate** (shown on suspended workspaces) — re-creates terminals and runs commands.
+
+Regular "Close Workspace" and the X button are **hidden** for provider workspaces to avoid ambiguity. Use Stop or Delete instead.
+
+### Session restore
+
+- Provider workspaces persist `providerOrigin` and `suspendedLayout` in the session snapshot.
+- On app restart, provider workspaces restore as **suspended** (dimmed, no terminals).
+- The previously selected workspace is only restored if it's not suspended; otherwise the first non-suspended workspace is selected.
+- If all workspaces are suspended, a fresh default workspace is created.
+- Click a suspended workspace to activate it.
 
 ## cmux Implementation
 
-### Files modified
+### Files
 
 - `Sources/WorkspaceProvider.swift` — `WorkspaceProviderStore`, `WorkspaceProviderItem`, `WorkspaceProviderInput` (with `deriveFrom`), `WorkspaceProviderOrigin`, shell execution for list/create/destroy
 - `Sources/CmuxConfig.swift` — `workspace_providers` in config, `suspended` field on `CmuxSurfaceDefinition`
-- `Sources/ContentView.swift` — `PendingWorkspaceItemView` with spinner/progress/log, `WorkspaceProviderInputSheet` with deriveFrom auto-fill
-- `Sources/Update/UpdateTitlebarAccessory.swift` — `TitlebarNewWorkspaceMenuButton` with NSMenu, hover pre-fetch, NSPanel for inputs, NSAlert for errors
-- `Sources/TabManager.swift` — `PendingWorkspace` model with progress log, destroy hook in `closeWorkspace`
-- `Sources/Workspace.swift` — `providerOrigin` property, suspended command wrapper in `applyCustomLayout`
+- `Sources/ContentView.swift` — `PendingWorkspaceItemView` with spinner/progress/log, `WorkspaceProviderInputSheet` with deriveFrom auto-fill, context menu Stop/Delete/Activate, hidden X button and Close for provider workspaces
+- `Sources/Update/UpdateTitlebarAccessory.swift` — `TitlebarNewWorkspaceMenuButton` with NSMenu, hover pre-fetch, NSPanel for inputs, NSAlert for errors, live terminal setup with output file watcher, env injection into layout
+- `Sources/TabManager.swift` — `PendingWorkspace` model, suspended workspace selection logic on restore, fresh workspace creation when all suspended
+- `Sources/Workspace.swift` — `providerOrigin`, `isSuspended`, `suspendedLayout`, `activateSuspended()`, `suspend()`, suspended command wrapper, session snapshot/restore with provider origin
+- `Sources/SessionPersistence.swift` — `SessionProviderOriginSnapshot`, `suspendedLayoutJSON` field
 - `Sources/cmuxApp.swift` — shared `WorkspaceProviderStore` with AppDelegate
 - `Sources/AppDelegate.swift` — `workspaceProviderStoreForTitlebar` shared store
 
 ### Design principles
 
 1. **cmux stays generic.** No knowledge of git, worktrees, or workflows. It just calls commands and gets back workspace definitions.
-2. **Reuses existing format.** Create output is a `CmuxWorkspaceDefinition` — same JSON structure used by cmux.json workspace commands.
-3. **CLI-based providers.** Any executable can be a provider. Easy to test (`provider list | jq`), language-agnostic.
-4. **Progressive complexity.** Simple providers just return `{"title":"...","cwd":"..."}`. Complex providers use layouts, inputs, workflows, progress streaming.
+2. **Live terminal setup.** Users see setup output in real time and can investigate failures interactively.
+3. **CLI-based providers.** Any executable can be a provider. Easy to test, language-agnostic.
+4. **Suspended workspaces.** Provider workspaces restore as lightweight placeholders. Zero resources until activated.
+5. **Clean lifecycle.** Stop/Delete replace ambiguous Close. Destroy only on explicit Delete.
 
 ---
 
 ## cmux-worktree Provider
 
-Reference provider implementation at `~/workspace/cmux-worktree/`.
-
-### Config
-
-`~/.config/cmux-worktree/projects.yml`:
-
-```yaml
-projects:
-  - id: cmux
-    name: cmux
-    path: ~/workspace/cmux
-    worktree: true
-    setup: bun install
-    workflows:
-      - name: Blank
-      - name: From PR
-        branch_from: pr_url
-        inputs:
-          - id: pr_url
-            label: PR URL
-            required: true
-        setup: echo "Setting up PR review..."
-      - name: Dev Session
-        setup: echo "Starting dev environment..."
-    tabs:
-      - name: Shell
-      - name: Git
-        command: lazygit
-        suspended: true
-
-  - id: simple
-    name: Simple Project
-    path: ~/workspace/simple
-    tabs:
-      - name: Shell
-```
-
-### Features
-
-- **Simple projects** — open a workspace at a directory with configured tabs
-- **Worktree projects** — create git worktrees in `~/.cmux/workspaces/<project>/<branch>/`
-- **Workflows** — per-project workflows with different setup steps and input types
-  - `branch_from: session` (default) — slugify session name into branch
-  - `branch_from: pr_url` — extract branch from GitHub PR URL via `gh` CLI
-- **Base + workflow setup** — base setup always runs, workflow setup runs on top
-- **Suspended tabs** — commands show "Press Enter to run" prompt, re-run on exit
-- **Cleanup on close** — destroy command removes git worktree when workspace is closed
-- **Env vars** — `CMUX_PROVIDER_PROJECT`, `CMUX_PROVIDER_WORKFLOW`, `CMUX_PROVIDER_SESSION`, `CMUX_PROVIDER_BRANCH`, `CMUX_PROVIDER_INPUT_*`
+Reference provider implementation at `~/workspace/cmux-worktree/`. See its [README](../../cmux-worktree/README.md) for full config documentation.
