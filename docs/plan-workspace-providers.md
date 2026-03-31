@@ -4,52 +4,26 @@
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| Phase 6: Extension Protocol (cmux side) | ✅ Implemented | Branch `feat/workspace-providers`. Needs build + test on host |
-| Phase 1: "+" Dropdown + Provider Integration | ✅ Implemented | Part of Phase 6 |
-| Phase 2: Simple Non-Worktree Project | ⬜ Not started | Provider scripts needed |
-| Phase 3: Suspended Tabs | ⬜ Not started | Research needed |
-| Phase 4: Worktree Support | ⬜ Not started | |
-| Phase 5: Workflows | ⬜ Backlog | |
+| Phase 6: Extension Protocol (cmux side) | ✅ Done | |
+| Phase 1: "+" Dropdown + Provider Integration | ✅ Done | Titlebar "+" button with NSMenu |
+| Phase 2: Simple Non-Worktree Project | ✅ Done | cmux-worktree provider |
+| Phase 3: Suspended Tabs | ✅ Done | `suspended: true` on surfaces |
+| Phase 4: Worktree Support | ✅ Done | git worktree create/destroy |
+| Phase 5: Workflows | ✅ Done | Per-project workflows with branch_from |
 
-### What's done (Phase 6 + Phase 1)
+### Future work
 
-- `Sources/WorkspaceProvider.swift` — provider store, executor, shell streaming
-- `Sources/CmuxConfig.swift` — `workspace_providers` in `CmuxConfigFile`, merged from local + global config
-- `Sources/ContentView.swift` — "+" button in sidebar footer with dropdown menu, input sheet for items with parameters, progress indicator during creation, error alert on failure
-- `Sources/AppDelegate.swift` — `WorkspaceProviderStore` wired into SwiftUI environment
-- `GhosttyTabs.xcodeproj/project.pbxproj` — new file reference added
-
-### What's next
-
-Build and test on host:
-```bash
-./scripts/reload.sh --tag workspace-providers --launch
-```
-
-Test config at `~/.config/cmux/cmux.json`:
-```json
-{
-  "commands": [],
-  "workspace_providers": [
-    {
-      "id": "test",
-      "name": "Test Provider",
-      "list": "echo '{\"items\":[{\"id\":\"hello\",\"name\":\"Hello World\",\"subtitle\":\"~/workspace\"}]}'",
-      "create": "echo 'progress: Setting up...' && sleep 1 && echo '{\"title\":\"Hello World\",\"cwd\":\"'$HOME'\"}'"
-    }
-  ]
-}
-```
+- **Setup in terminal** — run setup scripts in a live terminal instead of background process, so users can investigate failures interactively
 
 ---
 
 ## Overview
 
-Add an extension point to cmux so external tools can inject items into the workspace creation flow. The "+" button (new) in the sidebar becomes a dropdown: "New Workspace" (default) plus items from registered providers. Clicking a provider item runs the provider's setup flow and creates a workspace from its output.
+An extension point in cmux so external tools can inject items into the workspace creation flow. The "+" button in the titlebar shows a dropdown: "New Workspace" (default) plus items from registered providers. Clicking a provider item runs the provider's setup flow and creates a workspace from its output.
 
-Glowcat becomes a workspace provider — cmux doesn't know about worktrees, pools, or workflows. It just calls the provider and gets back a workspace definition.
+cmux doesn't know about git, worktrees, or workflows. It just calls the provider and gets back a workspace definition.
 
-## Phase 6 (highest priority): Extension Protocol
+## Extension Protocol
 
 ### Configuration
 
@@ -57,13 +31,13 @@ In `~/.config/cmux/cmux.json`:
 
 ```json
 {
-  "commands": [ ... ],
   "workspace_providers": [
     {
-      "id": "glowcat",
-      "name": "Glowcat",
-      "list": "glowcat provider list",
-      "create": "glowcat provider create"
+      "id": "cmux-worktree",
+      "name": "Projects",
+      "list": "/path/to/bun run /path/to/cmux-worktree/src/cli.ts list",
+      "create": "/path/to/bun run /path/to/cmux-worktree/src/cli.ts create",
+      "destroy": "/path/to/bun run /path/to/cmux-worktree/src/cli.ts destroy"
     }
   ]
 }
@@ -74,256 +48,251 @@ Per-project `.cmux/cmux.json` can also define providers (merged with global).
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string | Unique ID for the provider |
-| `name` | string | Display name (shown in dropdown header) |
+| `name` | string | Display name (shown in menu header) |
 | `list` | string | Shell command that outputs JSON list of items |
 | `create` | string | Shell command that sets up and outputs workspace config |
+| `destroy` | string? | Shell command called when a provider-created workspace is closed |
 
 ### Protocol
 
 #### `list` command
 
-Called when the user opens the "+" dropdown. Must respond quickly (<2s).
-
-```bash
-$ glowcat provider list
-```
+Called on hover over "+" (with 10s TTL cache). Must respond quickly (<2s).
 
 ```json
 {
   "items": [
     {
-      "id": "my-app",
-      "name": "My App",
-      "subtitle": "~/workspace/my-app",
+      "id": "my-project::blank",
+      "name": "My Project — Blank",
+      "subtitle": "~/workspace/my-project",
       "inputs": [
         {
-          "id": "session_name",
+          "id": "session",
           "label": "Session Name",
-          "placeholder": "e.g. feature-x",
+          "placeholder": "e.g. fix login bug",
           "required": true
+        },
+        {
+          "id": "branch",
+          "label": "Branch Name",
+          "placeholder": "auto-generated from session name",
+          "required": false,
+          "deriveFrom": "session"
         }
       ]
     },
     {
-      "id": "api-server",
-      "name": "API Server",
-      "subtitle": "~/workspace/api"
+      "id": "simple-project",
+      "name": "Simple Project",
+      "subtitle": "~/workspace/simple"
     }
   ]
 }
 ```
 
-`inputs` is optional. If present, cmux shows an input sheet before calling `create`.
-
-Items with no `inputs` create the workspace immediately on click.
+- `inputs` is optional. If present, cmux shows a floating input panel (NSPanel) before calling `create`.
+- `deriveFrom` auto-fills a field by slugifying another field's value. User can override.
+- Items with no `inputs` create the workspace immediately on click.
 
 #### `create` command
 
-Called with item ID and collected inputs as args. Can take time (setup scripts, worktree creation).
+Called with item ID and collected inputs as args.
 
 ```bash
-$ glowcat provider create --id my-app --input session_name=crimson-fox
+provider create --id my-project::blank --input session=feature-x --input branch=feature-x
 ```
 
-Stdout is newline-delimited. Lines prefixed with `progress:` are shown as status text. The last non-progress line must be JSON — the workspace definition on success, or an error object on failure.
+Stdout is newline-delimited. Lines prefixed with `progress:` update the pending workspace placeholder in the sidebar. The last non-progress line must be JSON.
 
 **Success:**
 ```
-progress: Creating worktree...
-progress: Running setup (bun install)...
-progress: Starting session...
-{"title":"My App · crimson-fox","cwd":"/path/to/worktree","layout":{"pane":{"surfaces":[{"type":"terminal","name":"Shell"}]}}}
+progress: Creating worktree "feature-x"...
+progress: Running base setup...
+progress: Installing dependencies...
+progress: Done!
+progress: Running workflow setup...
+{"title":"feature-x · My Project","cwd":"/path/to/worktree","env":{...},"layout":{...}}
 ```
 
 **Failure:**
 ```
 progress: Creating worktree...
-progress: Running setup...
 {"error":"Setup script failed with exit code 1"}
 ```
 
-The workspace definition JSON matches cmux's existing `CmuxWorkspaceDefinition` format:
+**Workspace definition format:**
 
 ```json
 {
-  "title": "My App · crimson-fox",
-  "cwd": "/Users/eunjae/workspace/my-app/.worktrees/crimson-fox",
+  "title": "feature-x · My Project",
+  "cwd": "/Users/me/.cmux/workspaces/my-project/feature-x",
   "color": "#3498DB",
-  "layout": {
-    "direction": "horizontal",
-    "children": [
-      {
-        "pane": {
-          "surfaces": [
-            { "type": "terminal", "name": "Shell" }
-          ]
-        }
-      },
-      {
-        "pane": {
-          "surfaces": [
-            { "type": "terminal", "name": "Dev", "command": "bun run dev" },
-            { "type": "browser", "name": "Preview", "url": "http://localhost:3000" }
-          ]
-        }
-      }
-    ]
-  },
   "env": {
-    "GLOWCAT_PORT": "40000",
-    "GLOWCAT_INSTANCE_ID": "crimson-fox"
+    "CMUX_PROVIDER_PROJECT": "my-project",
+    "CMUX_PROVIDER_WORKFLOW": "Blank",
+    "CMUX_PROVIDER_SESSION": "feature-x",
+    "CMUX_PROVIDER_BRANCH": "feature-x"
+  },
+  "layout": {
+    "pane": {
+      "surfaces": [
+        { "type": "terminal", "name": "Shell" },
+        { "type": "terminal", "name": "Git", "command": "lazygit", "suspended": true },
+        { "type": "browser", "name": "Preview", "url": "http://localhost:3000" }
+      ]
+    }
   }
 }
 ```
 
-### UX Flow
+#### `destroy` command
+
+Called when a provider-created workspace is closed. Runs async in background.
+
+```bash
+provider destroy --id my-project::blank --cwd /path/to/worktree --input session=feature-x --input branch=feature-x
+```
+
+Used for cleanup: removing git worktrees, freeing ports, etc. Failures are logged but don't block the UI.
+
+### Surface options
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `"terminal"` or `"browser"` | Surface type |
+| `name` | string? | Tab name |
+| `command` | string? | Command to run (terminal only) |
+| `cwd` | string? | Working directory override |
+| `env` | object? | Per-surface environment variables |
+| `url` | string? | URL to load (browser only) |
+| `focus` | bool? | Focus this surface on creation |
+| `suspended` | bool? | Show "Press Enter to run" loop instead of auto-executing |
+
+### Suspended mode
+
+When `suspended: true` and `command` is set, the terminal shows:
 
 ```
-User clicks "+" in sidebar
-  → Dropdown appears:
+▶ Press Enter to run: lazygit
+```
+
+The screen is cleared first. Pressing Enter runs the command. When the command exits (Ctrl-C, crash, or normal quit), the prompt returns. Press Enter to re-run.
+
+## UX Flow
+
+```
+User hovers "+" in titlebar
+  → Provider items pre-fetched in background (10s TTL cache)
+
+User clicks "+"
+  → NSMenu appears below the button:
       ┌──────────────────────┐
-      │ New Workspace        │  ← default (Cmd+N behavior)
+      │ New Workspace        │  ← default
       │ ──────────────────── │
-      │ Glowcat              │  ← provider name (header)
-      │   My App             │
-      │   API Server         │
-      │ ──────────────────── │
-      │ Another Provider     │  ← second provider (if any)
-      │   ...                │
+      │ Projects             │  ← provider name (header)
+      │   cmux — Blank       │
+      │   cmux — From PR     │
+      │   cmux — Dev Session │
       └──────────────────────┘
-  → User clicks "My App"
-  → If item has inputs → input sheet appears
+
+User clicks "cmux — Blank"
+  → Input panel appears (NSPanel):
       ┌──────────────────────────┐
-      │ My App                   │
+      │ cmux — Blank             │
       │                          │
       │ Session Name *           │
       │ ┌──────────────────────┐ │
-      │ │ e.g. feature-x       │ │
+      │ │ fix login bug        │ │
+      │ └──────────────────────┘ │
+      │ Branch Name              │
+      │ ┌──────────────────────┐ │
+      │ │ fix-login-bug        │ │  ← auto-derived, editable
       │ └──────────────────────┘ │
       │                          │
       │        Cancel   Create   │
       └──────────────────────────┘
-  → User types name, clicks Create
-  → cmux runs: glowcat provider create --id my-app --input session_name=feature-x
-  → While running, sidebar shows a placeholder workspace entry with spinner + progress text
-  → On success → workspace appears, tabs/splits load, workspace is selected
-  → On failure → error alert, placeholder removed
+
+User clicks Create
+  → Pending workspace appears in sidebar with spinner + progress
+  → ⓘ button opens log panel showing all progress lines
+  → On success → real workspace replaces pending, tabs/splits load
+  → On failure → pending shows error with ⚠️ icon and ✕ dismiss
+
+User closes workspace
+  → cmux calls destroy command in background
+  → Provider cleans up (removes worktree, etc.)
 ```
 
-### cmux Implementation
+## cmux Implementation
 
-**New files:**
-- `Sources/WorkspaceProvider.swift` — `WorkspaceProviderStore` (list/create protocol), `WorkspaceProviderItem`, provider process execution
+### Files modified
 
-**Modified files:**
-- `Sources/CmuxConfig.swift` — Add `workspace_providers` to `CmuxConfigFile`
-- `Sources/ContentView.swift` — Add "+" button to sidebar (above workspace list or in footer), wire to dropdown menu with provider items
-- `Sources/TabManager.swift` — Add `createWorkspaceFromProvider(definition:)` that takes a `CmuxWorkspaceDefinition` and creates the workspace
+- `Sources/WorkspaceProvider.swift` — `WorkspaceProviderStore`, `WorkspaceProviderItem`, `WorkspaceProviderInput` (with `deriveFrom`), `WorkspaceProviderOrigin`, shell execution for list/create/destroy
+- `Sources/CmuxConfig.swift` — `workspace_providers` in config, `suspended` field on `CmuxSurfaceDefinition`
+- `Sources/ContentView.swift` — `PendingWorkspaceItemView` with spinner/progress/log, `WorkspaceProviderInputSheet` with deriveFrom auto-fill
+- `Sources/Update/UpdateTitlebarAccessory.swift` — `TitlebarNewWorkspaceMenuButton` with NSMenu, hover pre-fetch, NSPanel for inputs, NSAlert for errors
+- `Sources/TabManager.swift` — `PendingWorkspace` model with progress log, destroy hook in `closeWorkspace`
+- `Sources/Workspace.swift` — `providerOrigin` property, suspended command wrapper in `applyCustomLayout`
+- `Sources/cmuxApp.swift` — shared `WorkspaceProviderStore` with AppDelegate
+- `Sources/AppDelegate.swift` — `workspaceProviderStoreForTitlebar` shared store
 
-**Minimal changes to existing code.** The provider system reuses `CmuxWorkspaceDefinition` and `applyCustomLayout()` for workspace creation — the same code path as cmux.json workspace commands.
+### Design principles
 
-### Why This Design
-
-1. **cmux stays generic.** No knowledge of git, worktrees, or glowcat concepts. It just calls a command and gets back a workspace definition.
-
-2. **Reuses existing format.** The create output is a `CmuxWorkspaceDefinition` — same JSON structure used by cmux.json workspace commands. No new layout/config format to invent.
-
-3. **Progressive complexity.** Simple providers just return `{"title":"...","cwd":"..."}`. Complex providers use layouts, inputs, progress streaming.
-
-4. **CLI-based.** Providers are any executable. Easy to test (`glowcat provider list | jq`), easy to debug, language-agnostic.
-
-5. **Fast feedback.** Progress lines stream in real-time. Users see what's happening during long setups.
+1. **cmux stays generic.** No knowledge of git, worktrees, or workflows. It just calls commands and gets back workspace definitions.
+2. **Reuses existing format.** Create output is a `CmuxWorkspaceDefinition` — same JSON structure used by cmux.json workspace commands.
+3. **CLI-based providers.** Any executable can be a provider. Easy to test (`provider list | jq`), language-agnostic.
+4. **Progressive complexity.** Simple providers just return `{"title":"...","cwd":"..."}`. Complex providers use layouts, inputs, workflows, progress streaming.
 
 ---
 
-## Env Var Injection
+## cmux-worktree Provider
 
-Confirmed: cmux supports env vars at every level.
+Reference provider implementation at `~/workspace/cmux-worktree/`.
 
-- `CmuxSurfaceDefinition` has `env: [String: String]?` — per-surface
-- `TabManager.addWorkspace(initialTerminalEnvironment:)` — workspace-level
-- `workspace.create` socket API accepts `initial_env`
-- `applyCustomLayout` passes `surface.env` to each `newTerminalSurface`
+### Config
 
-The provider's `create` output includes env vars on each surface:
-```json
-{
-  "surfaces": [{
-    "type": "terminal",
-    "name": "Dev",
-    "command": "bun run dev",
-    "env": { "GLOWCAT_PORT": "40010", "GLOWCAT_INSTANCE_ID": "crimson-fox" }
-  }]
-}
-```
-
-Additionally, the workspace definition itself should support a top-level `env` that gets applied to all surfaces (convenience for port injection). This may need a small cmux-side addition — currently `CmuxWorkspaceDefinition` doesn't have a top-level `env`, only per-surface. The provider can work around it by putting env on every surface, but a top-level merge would be cleaner.
-
----
-
-## Phases 1–5: Provider Scripts
-
-Once the extension system exists, the provider is a set of scripts + a YAML config. No separate binary needed.
-
-### Phase 1: "+" Dropdown + Provider Integration
-
-Add a "+" button to the cmux sidebar. Wire it to show "New Workspace" + items from `workspace_providers`. No project-specific code in cmux.
-
-### Phase 2: Simple Non-Worktree Project
-
-Write provider scripts (bash/bun) that read a YAML config:
+`~/.config/cmux-worktree/projects.yml`:
 
 ```yaml
-# ~/.config/glowcat/projects.yml
-port_base: 40000
-
 projects:
   - id: cmux
     name: cmux
     path: ~/workspace/cmux
-    worktree: false
+    worktree: true
+    setup: bun install
+    workflows:
+      - name: Blank
+      - name: From PR
+        branch_from: pr_url
+        inputs:
+          - id: pr_url
+            label: PR URL
+            required: true
+        setup: echo "Setting up PR review..."
+      - name: Dev Session
+        setup: echo "Starting dev environment..."
     tabs:
       - name: Shell
       - name: Git
-        command: "lazygit"
-      - name: Info
-        command: "pwd"
+        command: lazygit
+        suspended: true
+
+  - id: simple
+    name: Simple Project
+    path: ~/workspace/simple
+    tabs:
+      - name: Shell
 ```
 
-Provider `list` script → parses YAML → outputs `[{id: "cmux", name: "cmux", subtitle: "~/workspace/cmux"}]`
+### Features
 
-Provider `create` script → reads project config → outputs workspace definition JSON with surfaces for each tab.
-
-### Phase 3: Suspended Tabs
-
-Research how to handle "suspended" tabs in cmux. Options to investigate:
-- cmux's `waitAfterCommand` on `CmuxSurfaceConfigTemplate`
-- Starting the terminal but not running the command (show command in prompt?)
-- A "press Enter to run" UX
-
-### Phase 4: Worktree Support
-
-Add worktree creation to the `create` script. The provider:
-1. Returns `inputs: [{id: "session_name", ...}]` in the list response
-2. On create: `git worktree add` → runs setup → outputs workspace def with worktree cwd
-
-Progress streaming handles the delayed creation:
-```
-progress: Creating worktree...
-progress: Running setup...
-{"title":"cmux · feature-x","cwd":"/path/to/worktree",...}
-```
-
-Setup failure returns `{"error":"..."}` and cmux shows an error alert.
-
-**State management:** The create script manages a state file (`~/.config/glowcat/state.json`) tracking:
-- Active instances (id, project, port, worktree path, branch)
-- Port allocations (scanned against workspace directory on each run — freed if worktree is gone)
-
-**Workspace directory:** `~/.config/glowcat/workspaces/<project-id>/<instance-name>/`
-
-**Port allocation:** On create, the script reads state, finds the next free port block (starting from `port_base`, skipping allocated ports), writes it to state, and includes `GLOWCAT_PORT` in the surface env vars.
-
-### Phase 5: Workflows (backlog)
-
-Add workflow support. Workflows would be additional items in the list response with `inputs`. Deferred for now.
+- **Simple projects** — open a workspace at a directory with configured tabs
+- **Worktree projects** — create git worktrees in `~/.cmux/workspaces/<project>/<branch>/`
+- **Workflows** — per-project workflows with different setup steps and input types
+  - `branch_from: session` (default) — slugify session name into branch
+  - `branch_from: pr_url` — extract branch from GitHub PR URL via `gh` CLI
+- **Base + workflow setup** — base setup always runs, workflow setup runs on top
+- **Suspended tabs** — commands show "Press Enter to run" prompt, re-run on exit
+- **Cleanup on close** — destroy command removes git worktree when workspace is closed
+- **Env vars** — `CMUX_PROVIDER_PROJECT`, `CMUX_PROVIDER_WORKFLOW`, `CMUX_PROVIDER_SESSION`, `CMUX_PROVIDER_BRANCH`, `CMUX_PROVIDER_INPUT_*`
