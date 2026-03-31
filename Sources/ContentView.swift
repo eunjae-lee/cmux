@@ -12259,13 +12259,23 @@ private struct TabItemView: View, Equatable {
                 }
             }
 
-            Button(String(localized: "contextMenu.deleteProviderWorkspace", defaultValue: "Delete")) {
+            Button(role: .destructive) {
+                let alert = NSAlert()
+                alert.messageText = String(localized: "contextMenu.deleteProviderWorkspace.title", defaultValue: "Delete Workspace?")
+                alert.informativeText = String(localized: "contextMenu.deleteProviderWorkspace.message", defaultValue: "This will close the workspace, all of its panels, and clean up any associated resources (e.g. git worktrees).")
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: String(localized: "contextMenu.deleteProviderWorkspace.delete", defaultValue: "Delete"))
+                alert.addButton(withTitle: String(localized: "contextMenu.deleteProviderWorkspace.cancel", defaultValue: "Cancel"))
+                let response = alert.runModal()
+                guard response == .alertFirstButtonReturn else { return }
                 if let origin = tab.providerOrigin {
                     Task {
                         await WorkspaceProviderExecutor.runDestroy(origin: origin)
                     }
                 }
                 closeTabs(targetIds, allowPinned: true)
+            } label: {
+                Text(String(localized: "contextMenu.deleteProviderWorkspace", defaultValue: "Delete Workspace"))
             }
         }
 
