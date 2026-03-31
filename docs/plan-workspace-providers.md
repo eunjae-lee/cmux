@@ -13,7 +13,7 @@
 
 ### Future work
 
-- **Setup in terminal** — run setup scripts in a live terminal instead of background process, so users can investigate failures interactively
+All planned features are implemented.
 
 ---
 
@@ -97,29 +97,17 @@ Called on hover over "+" (with 10s TTL cache). Must respond quickly (<2s).
 
 #### `create` command
 
-Called with item ID and collected inputs as args.
+Runs in a live terminal. cmux sets `CMUX_PROVIDER_OUTPUT` env var to a temp file path. The provider writes the workspace definition JSON to that file on success.
 
 ```bash
-provider create --id my-project::blank --input session=feature-x --input branch=feature-x
+CMUX_PROVIDER_OUTPUT=/tmp/cmux-provider-xxx.json provider create --id my-project::blank --input session=feature-x --input branch=feature-x
 ```
 
-Stdout is newline-delimited. Lines prefixed with `progress:` update the pending workspace placeholder in the sidebar. The last non-progress line must be JSON.
+All stdout/stderr goes to the terminal naturally — no special protocol needed. The user watches setup in real time.
 
-**Success:**
-```
-progress: Creating worktree "feature-x"...
-progress: Running base setup...
-progress: Installing dependencies...
-progress: Done!
-progress: Running workflow setup...
-{"title":"feature-x · My Project","cwd":"/path/to/worktree","env":{...},"layout":{...}}
-```
+**On success:** provider writes JSON to `$CMUX_PROVIDER_OUTPUT`, cmux reads it and applies the layout.
 
-**Failure:**
-```
-progress: Creating worktree...
-{"error":"Setup script failed with exit code 1"}
-```
+**On failure:** provider exits with non-zero, no output file written. User is left in the terminal to investigate.
 
 **Workspace definition format:**
 
