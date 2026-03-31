@@ -5648,14 +5648,29 @@ extension TabManager {
            newTabs.indices.contains(selectedWorkspaceIndex),
            !newTabs[selectedWorkspaceIndex].isSuspended {
             newSelectedId = newTabs[selectedWorkspaceIndex].id
+        } else if let firstActive = newTabs.first(where: { !$0.isSuspended }) {
+            newSelectedId = firstActive.id
         } else {
-            newSelectedId = newTabs.first(where: { !$0.isSuspended })?.id ?? newTabs.first?.id
+            // All workspaces are suspended — will create a fresh workspace after restore
+            newSelectedId = nil
         }
+
+        // If all workspaces are suspended, create a fresh default workspace
+        if newSelectedId == nil {
+            let fresh = addWorkspace(select: false, placementOverride: .top)
+            // addWorkspace appends to `tabs`, but we're about to overwrite it,
+            // so insert into newTabs instead
+            if let idx = tabs.firstIndex(where: { $0.id == fresh.id }) {
+                tabs.remove(at: idx)
+            }
+            newTabs.insert(fresh, at: 0)
+        }
+        let resolvedSelectedId = newSelectedId ?? newTabs.first?.id
 
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
-        selectedTabId = newSelectedId
+        selectedTabId = resolvedSelectedId
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
         sidebarSelectedWorkspaceIds.formIntersection(existingIds)
