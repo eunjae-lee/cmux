@@ -2831,6 +2831,10 @@ class TabManager: ObservableObject {
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
 #endif
+        // Activate suspended provider workspaces on first selection
+        if workspace.isSuspended {
+            workspace.activateSuspended()
+        }
         selectedTabId = workspace.id
     }
 

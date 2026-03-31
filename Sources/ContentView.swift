@@ -8747,6 +8747,7 @@ struct VerticalTabsSidebar: View {
                                     settings: tabItemSettings
                                 )
                                 .equatable()
+                                .opacity(tab.isSuspended ? 0.4 : 1.0)
                             }
 
                             // Pending workspaces (being created by providers)

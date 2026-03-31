@@ -327,6 +327,14 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
     }
 }
 
+struct SessionProviderOriginSnapshot: Codable, Sendable {
+    var providerId: String
+    var destroyCommand: String?
+    var itemId: String
+    var inputs: [String: String]
+    var cwd: String?
+}
+
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     var processTitle: String
     var customTitle: String?
@@ -340,6 +348,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
+    /// Provider origin for workspaces created by providers. Nil for regular workspaces.
+    var providerOrigin: SessionProviderOriginSnapshot?
+    /// Layout to apply when a suspended provider workspace is activated. Encoded CmuxLayoutNode JSON.
+    var suspendedLayoutJSON: String?
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {

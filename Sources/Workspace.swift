@@ -277,6 +277,25 @@ extension Workspace {
             SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty)
         }
 
+        // Serialize provider origin if present
+        let providerOriginSnapshot: SessionProviderOriginSnapshot? = providerOrigin.map {
+            SessionProviderOriginSnapshot(
+                providerId: $0.providerId,
+                destroyCommand: $0.destroyCommand,
+                itemId: $0.itemId,
+                inputs: $0.inputs,
+                cwd: $0.cwd
+            )
+        }
+
+        // Serialize suspended layout if present
+        var suspendedLayoutJSONString: String?
+        if let suspendedLayout {
+            if let data = try? JSONEncoder().encode(suspendedLayout) {
+                suspendedLayoutJSONString = String(data: data, encoding: .utf8)
+            }
+        }
+
         return SessionWorkspaceSnapshot(
             processTitle: processTitle,
             customTitle: customTitle,
@@ -289,11 +308,47 @@ extension Workspace {
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
             progress: progressSnapshot,
-            gitBranch: gitBranchSnapshot
+            gitBranch: gitBranchSnapshot,
+            providerOrigin: providerOriginSnapshot,
+            suspendedLayoutJSON: suspendedLayoutJSONString
         )
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
+        // Restore provider origin
+        if let origin = snapshot.providerOrigin {
+            providerOrigin = WorkspaceProviderOrigin(
+                providerId: origin.providerId,
+                destroyCommand: origin.destroyCommand,
+                itemId: origin.itemId,
+                inputs: origin.inputs,
+                cwd: origin.cwd
+            )
+        }
+
+        // Provider workspaces restore as suspended — no terminals until activated
+        if snapshot.providerOrigin != nil {
+            applyProcessTitle(snapshot.processTitle)
+            setCustomTitle(snapshot.customTitle)
+            setCustomColor(snapshot.customColor)
+            isPinned = snapshot.isPinned
+
+            let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalizedCurrentDirectory.isEmpty {
+                currentDirectory = normalizedCurrentDirectory
+            }
+
+            // Decode the suspended layout for later activation
+            if let jsonString = snapshot.suspendedLayoutJSON,
+               let data = jsonString.data(using: .utf8),
+               let layout = try? JSONDecoder().decode(CmuxLayoutNode.self, from: data) {
+                suspendedLayout = layout
+            }
+
+            isSuspended = true
+            return
+        }
+
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -735,6 +790,13 @@ extension Workspace {
 // MARK: - cmux.json custom layout
 
 extension Workspace {
+
+    /// Activate a suspended workspace: create terminals and apply the saved layout.
+    func activateSuspended() {
+        guard isSuspended, let layout = suspendedLayout else { return }
+        isSuspended = false
+        applyCustomLayout(layout, baseCwd: currentDirectory)
+    }
 
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) {
         guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
@@ -5488,6 +5550,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Tracks which provider created this workspace, for cleanup on close.
     var providerOrigin: WorkspaceProviderOrigin?
+
+    /// When true, the workspace is a placeholder — no terminals running.
+    /// Clicking it in the sidebar activates it.
+    @Published var isSuspended: Bool = false
+
+    /// Layout to apply when activating a suspended workspace.
+    var suspendedLayout: CmuxLayoutNode?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0

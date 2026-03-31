@@ -1836,6 +1836,9 @@ private struct TitlebarNewWorkspaceMenuButton: View {
                 Self.injectEnvIntoLayout(&layout, env: env)
             }
 
+            // Store layout for session restore (suspended workspace re-activation)
+            workspace.suspendedLayout = layout
+
             // Close existing setup panel(s)
             for panelId in Array(workspace.panels.keys) {
                 _ = workspace.closePanel(panelId, force: true)
