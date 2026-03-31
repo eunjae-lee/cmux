@@ -949,7 +949,7 @@ extension Workspace {
         return "while true; do clear; printf '\\e[2m▶ Press Enter to run:\\e[0m \\e[1m\(escaped)\\e[0m\\n'; read; \(escaped); done"
     }
 
-    private func sendInputWhenReady(_ text: String, to panel: TerminalPanel) {
+    func sendInputWhenReady(_ text: String, to panel: TerminalPanel) {
         if panel.surface.surface != nil {
             panel.sendInput(text)
             return

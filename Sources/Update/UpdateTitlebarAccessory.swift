@@ -1727,55 +1727,94 @@ private struct TitlebarNewWorkspaceMenuButton: View {
     private func startCreate(provider: WorkspaceProviderDefinition, item: WorkspaceProviderItem, inputs: [String: String]) {
         guard let tabManager = AppDelegate.shared?.tabManager else { return }
 
-        let pending = PendingWorkspace(
-            title: item.name,
-            providerId: provider.id,
-            itemId: item.id
+        // Generate temp file for provider output
+        let outputPath = NSTemporaryDirectory() + "cmux-provider-\(UUID().uuidString).json"
+
+        // Build the create command with args
+        var command = "\(provider.create) --id \(Self.shellEscape(item.id))"
+        for (key, value) in inputs {
+            command += " --input \(Self.shellEscape("\(key)=\(value)"))"
+        }
+
+        // Create workspace with a setup terminal
+        let ws = tabManager.addWorkspace(
+            title: "Setting up: \(item.name)",
+            initialTerminalEnvironment: ["CMUX_PROVIDER_OUTPUT": outputPath]
         )
-        // Store origin so we can call destroy if creation fails and user dismisses
-        pending.providerOrigin = WorkspaceProviderOrigin(
+        ws.setCustomTitle("Setting up: \(item.name)")
+
+        // Track provider origin for cleanup on close
+        ws.providerOrigin = WorkspaceProviderOrigin(
             providerId: provider.id,
             destroyCommand: provider.destroy,
             itemId: item.id,
             inputs: inputs,
-            cwd: nil  // will be set if we can extract it from progress/error
+            cwd: nil
         )
-        tabManager.pendingWorkspaces.append(pending)
 
-        activeCreateTask?.cancel()
-        activeCreateTask = Task {
-            do {
-                let result = try await providerStore.create(
-                    provider: provider,
-                    itemId: item.id,
-                    inputs: inputs,
-                    progressHandler: { message in
-                        pending.appendProgress(message)
-                    }
-                )
-                tabManager.pendingWorkspaces.removeAll { $0.id == pending.id }
-                createWorkspaceFromResult(result, provider: provider, item: item, inputs: inputs)
-            } catch {
-                pending.state = .failed(error.localizedDescription)
-            }
+        // Send the create command to the terminal
+        if let firstPanelId = ws.panels.keys.first,
+           let panel = ws.terminalPanel(for: firstPanelId) {
+            ws.sendInputWhenReady(command + "\n", to: panel)
         }
+
+        // Watch for the output file
+        watchForProviderOutput(
+            outputPath: outputPath,
+            workspace: ws,
+            provider: provider,
+            item: item,
+            inputs: inputs
+        )
     }
 
-    private func createWorkspaceFromResult(
-        _ result: WorkspaceProviderCreateResult,
+    private func watchForProviderOutput(
+        outputPath: String,
+        workspace: Workspace,
         provider: WorkspaceProviderDefinition,
         item: WorkspaceProviderItem,
         inputs: [String: String]
     ) {
-        guard let tabManager = AppDelegate.shared?.tabManager else { return }
-        let ws = tabManager.addWorkspace(
-            title: result.title,
-            workingDirectory: result.cwd,
-            initialTerminalEnvironment: result.env ?? [:]
-        )
+        // Poll for the output file every second
+        let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+            guard FileManager.default.fileExists(atPath: outputPath) else { return }
 
-        // Track provider origin for cleanup on close
-        ws.providerOrigin = WorkspaceProviderOrigin(
+            // File exists — read and parse it
+            timer.invalidate()
+
+            do {
+                let data = try Data(contentsOf: URL(fileURLWithPath: outputPath))
+                let result = try JSONDecoder().decode(WorkspaceProviderCreateResult.self, from: data)
+                try? FileManager.default.removeItem(atPath: outputPath)
+
+                if let error = result.error {
+                    NSLog("[WorkspaceProvider] create returned error: %@", error)
+                    return // leave user in the terminal to investigate
+                }
+
+                // Apply the full workspace configuration
+                self.applyProviderResult(result, to: workspace, provider: provider, item: item, inputs: inputs)
+            } catch {
+                NSLog("[WorkspaceProvider] failed to parse output file: %@", error.localizedDescription)
+                try? FileManager.default.removeItem(atPath: outputPath)
+            }
+        }
+        // Safety: stop polling after 30 minutes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1800) {
+            timer.invalidate()
+            try? FileManager.default.removeItem(atPath: outputPath)
+        }
+    }
+
+    private func applyProviderResult(
+        _ result: WorkspaceProviderCreateResult,
+        to workspace: Workspace,
+        provider: WorkspaceProviderDefinition,
+        item: WorkspaceProviderItem,
+        inputs: [String: String]
+    ) {
+        // Update origin with cwd
+        workspace.providerOrigin = WorkspaceProviderOrigin(
             providerId: provider.id,
             destroyCommand: provider.destroy,
             itemId: item.id,
@@ -1784,16 +1823,25 @@ private struct TitlebarNewWorkspaceMenuButton: View {
         )
 
         if let color = result.color {
-            ws.setCustomColor(color)
+            workspace.setCustomColor(color)
         }
         if let title = result.title {
-            ws.setCustomTitle(title)
+            workspace.setCustomTitle(title)
         }
 
-        if let layout = result.layout {
-            let baseCwd = result.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path
-            ws.applyCustomLayout(layout, baseCwd: baseCwd)
+        // Close the setup terminal and apply the configured layout
+        if let layout = result.layout, let cwd = result.cwd {
+            // Close existing setup panel(s)
+            for panelId in Array(workspace.panels.keys) {
+                _ = workspace.closePanel(panelId, force: true)
+            }
+            // Apply full layout at the workspace cwd
+            workspace.applyCustomLayout(layout, baseCwd: cwd)
         }
+    }
+
+    private static func shellEscape(_ str: String) -> String {
+        "'" + str.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
