@@ -255,6 +255,9 @@ struct CmuxSurfaceDefinition: Codable, Sendable {
     var env: [String: String]?
     var url: String?
     var focus: Bool?
+    /// When true and `command` is set, the command is placed in the terminal
+    /// as editable text without executing. The user presses Enter to run it.
+    var suspended: Bool?
 }
 
 enum CmuxSurfaceType: String, Codable, Sendable {

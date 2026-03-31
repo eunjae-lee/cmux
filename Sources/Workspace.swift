@@ -853,14 +853,18 @@ extension Workspace {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
-                if let command = surface.command { sendInputWhenReady(command + "\n", to: panel) }
+                if let command = surface.command {
+                    let isSuspended = surface.suspended == true
+                    sendInputWhenReady(command + (isSuspended ? "" : "\n"), to: panel)
+                }
             }
 
         case .terminal:
             if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
             if surface.focus == true { focusPanelId = panelId }
             if let command = surface.command, let terminal = terminalPanel(for: panelId) {
-                sendInputWhenReady(command + "\n", to: terminal)
+                let isSuspended = surface.suspended == true
+                sendInputWhenReady(command + (isSuspended ? "" : "\n"), to: terminal)
             }
 
         case .browser:
@@ -890,7 +894,10 @@ extension Workspace {
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
-                if let command = surface.command { sendInputWhenReady(command + "\n", to: panel) }
+                if let command = surface.command {
+                    let isSuspended = surface.suspended == true
+                    sendInputWhenReady(command + (isSuspended ? "" : "\n"), to: panel)
+                }
             }
 
         case .browser:
