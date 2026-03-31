@@ -1830,13 +1830,38 @@ private struct TitlebarNewWorkspaceMenuButton: View {
         }
 
         // Close the setup terminal and apply the configured layout
-        if let layout = result.layout, let cwd = result.cwd {
+        if var layout = result.layout, let cwd = result.cwd {
+            // Merge workspace-level env into every surface in the layout
+            if let env = result.env, !env.isEmpty {
+                Self.injectEnvIntoLayout(&layout, env: env)
+            }
+
             // Close existing setup panel(s)
             for panelId in Array(workspace.panels.keys) {
                 _ = workspace.closePanel(panelId, force: true)
             }
             // Apply full layout at the workspace cwd
             workspace.applyCustomLayout(layout, baseCwd: cwd)
+        }
+    }
+
+    /// Recursively merge workspace-level env vars into every surface in the layout.
+    private static func injectEnvIntoLayout(_ node: inout CmuxLayoutNode, env: [String: String]) {
+        switch node {
+        case .pane(var pane):
+            for i in pane.surfaces.indices {
+                var merged = env
+                if let surfaceEnv = pane.surfaces[i].env {
+                    merged.merge(surfaceEnv) { _, surface in surface } // surface env wins
+                }
+                pane.surfaces[i].env = merged
+            }
+            node = .pane(pane)
+        case .split(var split):
+            for i in split.children.indices {
+                injectEnvIntoLayout(&split.children[i], env: env)
+            }
+            node = .split(split)
         }
     }
 
