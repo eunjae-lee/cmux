@@ -8747,6 +8747,9 @@ struct VerticalTabsSidebar: View {
                                     settings: tabItemSettings
                                 )
                                 .equatable()
+                                // Note: reading tab.isSuspended here bypasses .equatable() but
+                                // isSuspended only changes on explicit user action (activate/suspend/restore),
+                                // never during typing, so the re-evaluation cost is negligible.
                                 .opacity(tab.isSuspended ? 0.4 : 1.0)
                             }
 

@@ -791,6 +791,14 @@ extension Workspace {
 
 extension Workspace {
 
+    /// Send a command to the first terminal panel. Used by the provider create flow
+    /// to run the setup command in the workspace's initial terminal.
+    func sendCommandToFirstTerminal(_ command: String) {
+        guard let firstPanelId = panels.keys.first,
+              let panel = terminalPanel(for: firstPanelId) else { return }
+        sendInputWhenReady(command, to: panel)
+    }
+
     /// Activate a suspended workspace: create terminals and apply the saved layout.
     func activateSuspended() {
         guard isSuspended, let layout = suspendedLayout else { return }
@@ -1020,7 +1028,7 @@ extension Workspace {
         return "while true; do clear; printf '\\e[2m▶ Press Enter to run:\\e[0m \\e[1m\(escaped)\\e[0m\\n'; read; \(escaped); done"
     }
 
-    func sendInputWhenReady(_ text: String, to panel: TerminalPanel) {
+    private func sendInputWhenReady(_ text: String, to panel: TerminalPanel) {
         if panel.surface.surface != nil {
             panel.sendInput(text)
             return

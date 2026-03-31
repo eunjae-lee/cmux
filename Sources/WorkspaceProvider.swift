@@ -232,6 +232,11 @@ enum WorkspaceProviderExecutor {
         }
     }
 
+    /// Exposed as `testableShellEscape` for unit tests.
+    static func testableShellEscape(_ str: String) -> String {
+        shellEscape(str)
+    }
+
     private static func shellEscape(_ str: String) -> String {
         "'" + str.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }

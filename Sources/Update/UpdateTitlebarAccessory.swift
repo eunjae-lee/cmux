@@ -1521,6 +1521,8 @@ private struct TitlebarNewWorkspaceMenuButton: View {
     @State private var isHovering = false
     @State private var isMenuPresented = false
     @State private var showingInputSheet = false
+    /// Retains NSMenu action targets for the lifetime of the menu.
+    @State private var menuTargets: [TitlebarMenuTarget] = []
     @State private var pendingProvider: WorkspaceProviderDefinition?
     @State private var pendingItem: WorkspaceProviderItem?
     @State private var inputValues: [String: String] = [:]
@@ -1572,6 +1574,7 @@ private struct TitlebarNewWorkspaceMenuButton: View {
 
     private func showMenu() {
         let menu = NSMenu()
+        var targets: [TitlebarMenuTarget] = []
 
         // Default new workspace
         let newItem = NSMenuItem(
@@ -1581,7 +1584,7 @@ private struct TitlebarNewWorkspaceMenuButton: View {
         )
         let target = TitlebarMenuTarget(onNewTab: onNewTab)
         newItem.target = target
-        newItem.representedObject = target // prevent deallocation
+        targets.append(target)
         menu.addItem(newItem)
 
         // Provider items
@@ -1615,7 +1618,7 @@ private struct TitlebarNewWorkspaceMenuButton: View {
                         }
                     )
                     menuItem.target = itemTarget
-                    menuItem.representedObject = itemTarget
+                    targets.append(itemTarget)
                     if let subtitle = item.subtitle {
                         menuItem.toolTip = subtitle
                     }
@@ -1623,6 +1626,9 @@ private struct TitlebarNewWorkspaceMenuButton: View {
                 }
             }
         }
+
+        // Retain targets until menu dismisses
+        menuTargets = targets
 
         // Show menu anchored below the "+" button
         if let anchorView = menuAnchorView {
@@ -1753,10 +1759,7 @@ private struct TitlebarNewWorkspaceMenuButton: View {
         )
 
         // Send the create command to the terminal
-        if let firstPanelId = ws.panels.keys.first,
-           let panel = ws.terminalPanel(for: firstPanelId) {
-            ws.sendInputWhenReady(command + "\n", to: panel)
-        }
+        ws.sendCommandToFirstTerminal(command + "\n")
 
         // Watch for the output file
         watchForProviderOutput(
@@ -1775,33 +1778,72 @@ private struct TitlebarNewWorkspaceMenuButton: View {
         item: WorkspaceProviderItem,
         inputs: [String: String]
     ) {
-        // Poll for the output file every second
-        let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
-            guard FileManager.default.fileExists(atPath: outputPath) else { return }
-
-            // File exists — read and parse it
-            timer.invalidate()
-
-            do {
-                let data = try Data(contentsOf: URL(fileURLWithPath: outputPath))
-                let result = try JSONDecoder().decode(WorkspaceProviderCreateResult.self, from: data)
-                try? FileManager.default.removeItem(atPath: outputPath)
-
-                if let error = result.error {
-                    NSLog("[WorkspaceProvider] create returned error: %@", error)
-                    return // leave user in the terminal to investigate
-                }
-
-                // Apply the full workspace configuration
-                self.applyProviderResult(result, to: workspace, provider: provider, item: item, inputs: inputs)
-            } catch {
-                NSLog("[WorkspaceProvider] failed to parse output file: %@", error.localizedDescription)
-                try? FileManager.default.removeItem(atPath: outputPath)
-            }
+        // Watch the directory for the output file using DispatchSource (no polling)
+        let directoryPath = (outputPath as NSString).deletingLastPathComponent
+        let fd = open(directoryPath, O_EVTONLY)
+        guard fd >= 0 else {
+            NSLog("[WorkspaceProvider] failed to open directory for watching: %@", directoryPath)
+            return
         }
-        // Safety: stop polling after 30 minutes
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: .write,
+            queue: .main
+        )
+
+        var didHandle = false
+
+        source.setEventHandler {
+            guard !didHandle else { return }
+            guard FileManager.default.fileExists(atPath: outputPath) else { return }
+            didHandle = true
+            source.cancel()
+
+            self.handleProviderOutputFile(
+                outputPath: outputPath,
+                workspace: workspace,
+                provider: provider,
+                item: item,
+                inputs: inputs
+            )
+        }
+
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        source.resume()
+
+        // Safety: stop watching after 30 minutes
         DispatchQueue.main.asyncAfter(deadline: .now() + 1800) {
-            timer.invalidate()
+            guard !didHandle else { return }
+            didHandle = true
+            source.cancel()
+            try? FileManager.default.removeItem(atPath: outputPath)
+        }
+    }
+
+    private func handleProviderOutputFile(
+        outputPath: String,
+        workspace: Workspace,
+        provider: WorkspaceProviderDefinition,
+        item: WorkspaceProviderItem,
+        inputs: [String: String]
+    ) {
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: outputPath))
+            let result = try JSONDecoder().decode(WorkspaceProviderCreateResult.self, from: data)
+            try? FileManager.default.removeItem(atPath: outputPath)
+
+            if let error = result.error {
+                NSLog("[WorkspaceProvider] create returned error: %@", error)
+                return
+            }
+
+            applyProviderResult(result, to: workspace, provider: provider, item: item, inputs: inputs)
+        } catch {
+            NSLog("[WorkspaceProvider] failed to parse output file: %@", error.localizedDescription)
             try? FileManager.default.removeItem(atPath: outputPath)
         }
     }
