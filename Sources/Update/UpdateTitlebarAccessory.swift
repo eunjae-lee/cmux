@@ -1725,6 +1725,15 @@ private struct TitlebarNewWorkspaceMenuButton: View {
     }
 
     private func startCreate(provider: WorkspaceProviderDefinition, item: WorkspaceProviderItem, inputs: [String: String]) {
+        guard let tabManager = AppDelegate.shared?.tabManager else { return }
+
+        let pending = PendingWorkspace(
+            title: item.name,
+            providerId: provider.id,
+            itemId: item.id
+        )
+        tabManager.pendingWorkspaces.append(pending)
+
         activeCreateTask?.cancel()
         activeCreateTask = Task {
             do {
@@ -1732,12 +1741,14 @@ private struct TitlebarNewWorkspaceMenuButton: View {
                     provider: provider,
                     itemId: item.id,
                     inputs: inputs,
-                    progressHandler: { _ in }
+                    progressHandler: { message in
+                        pending.appendProgress(message)
+                    }
                 )
+                tabManager.pendingWorkspaces.removeAll { $0.id == pending.id }
                 createWorkspaceFromResult(result)
             } catch {
-                errorMessage = error.localizedDescription
-                showingError = true
+                pending.state = .failed(error.localizedDescription)
             }
         }
     }

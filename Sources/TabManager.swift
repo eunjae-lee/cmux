@@ -645,6 +645,36 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 }
 #endif
 
+// MARK: - Pending Workspace
+
+@MainActor
+final class PendingWorkspace: ObservableObject, Identifiable {
+    let id = UUID()
+    let title: String
+    let providerId: String
+    let itemId: String
+    @Published var progress: String
+    @Published var logLines: [String] = []
+    @Published var state: State = .loading
+
+    enum State {
+        case loading
+        case failed(String)
+    }
+
+    init(title: String, providerId: String, itemId: String) {
+        self.title = title
+        self.providerId = providerId
+        self.itemId = itemId
+        self.progress = String(localized: "workspace.pending.creating", defaultValue: "Creating…")
+    }
+
+    func appendProgress(_ message: String) {
+        progress = message
+        logLines.append(message)
+    }
+}
+
 @MainActor
 class TabManager: ObservableObject {
     private enum WorkspacePullRequestSnapshot: Equatable {
@@ -690,6 +720,7 @@ class TabManager: ObservableObject {
     weak var window: NSWindow?
 
     @Published var tabs: [Workspace] = []
+    @Published var pendingWorkspaces: [PendingWorkspace] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []

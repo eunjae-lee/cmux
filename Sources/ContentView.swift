@@ -8748,6 +8748,13 @@ struct VerticalTabsSidebar: View {
                                 )
                                 .equatable()
                             }
+
+                            // Pending workspaces (being created by providers)
+                            ForEach(tabManager.pendingWorkspaces) { pending in
+                                PendingWorkspaceItemView(pending: pending, onDismiss: {
+                                    tabManager.pendingWorkspaces.removeAll { $0.id == pending.id }
+                                })
+                            }
                         }
                         .padding(.vertical, 8)
 
@@ -11078,6 +11085,142 @@ private final class SidebarScrollViewResolverView: NSView {
             guard let self else { return }
             onResolve?(self.enclosingScrollView)
         }
+    }
+}
+
+// MARK: - Pending Workspace Item
+
+private struct PendingWorkspaceItemView: View {
+    @ObservedObject var pending: PendingWorkspace
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            switch pending.state {
+            case .loading:
+                ProgressView()
+                    .controlSize(.small)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(pending.title)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                    Text(pending.progress)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if pending.logLines.count > 1 {
+                    PendingWorkspaceLogButton(pending: pending)
+                }
+            case .failed(let error):
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.yellow)
+                    .font(.system(size: 12))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(pending.title)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                    Text(error)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
+                Spacer()
+                PendingWorkspaceLogButton(pending: pending)
+                Button {
+                    onDismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct PendingWorkspaceLogButton: View {
+    @ObservedObject var pending: PendingWorkspace
+
+    var body: some View {
+        Button {
+            showLogPanel()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func showLogPanel() {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 300),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "\(pending.title) — Log"
+        panel.isFloatingPanel = true
+        panel.level = .floating
+
+        let hostingView = NSHostingView(
+            rootView: PendingWorkspaceLogView(pending: pending)
+        )
+        panel.contentView = hostingView
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct PendingWorkspaceLogView: View {
+    @ObservedObject var pending: PendingWorkspace
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(pending.logLines.enumerated()), id: \.offset) { index, line in
+                            Text(line)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(lineColor(for: index))
+                                .textSelection(.enabled)
+                                .id(index)
+                        }
+                    }
+                    .padding(12)
+                }
+                .onChange(of: pending.logLines.count) { _ in
+                    if let last = pending.logLines.indices.last {
+                        proxy.scrollTo(last, anchor: .bottom)
+                    }
+                }
+            }
+
+            if case .failed(let error) = pending.state {
+                Divider()
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.yellow)
+                    Text(error)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red)
+                        .lineLimit(3)
+                }
+                .padding(12)
+            }
+        }
+        .frame(minWidth: 360, minHeight: 200)
+    }
+
+    private func lineColor(for index: Int) -> Color {
+        index == pending.logLines.count - 1 ? .primary : .secondary
     }
 }
 
