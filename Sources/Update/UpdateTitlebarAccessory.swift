@@ -1528,6 +1528,8 @@ private struct TitlebarNewWorkspaceMenuButton: View {
     @State private var errorMessage = ""
     @State private var activeCreateTask: Task<Void, Never>?
     @State private var menuAnchorView: NSView?
+    @State private var lastFetchTime: Date?
+    private static let fetchTTL: TimeInterval = 10
 
     var body: some View {
         let hasProviders = !providerStore.providers.isEmpty
@@ -1543,6 +1545,11 @@ private struct TitlebarNewWorkspaceMenuButton: View {
                 .font(.system(size: config.iconSize, weight: .semibold))
                 .frame(width: config.buttonSize, height: config.buttonSize)
                 .background(MenuAnchorView(anchorViewRef: $menuAnchorView))
+        }
+        .onHover { hovering in
+            if hovering && hasProviders {
+                prefetchIfStale()
+            }
         }
         .sheet(isPresented: $showingInputSheet) {
             if let provider = pendingProvider, let item = pendingItem, let inputs = item.inputs, !inputs.isEmpty {
@@ -1639,17 +1646,29 @@ private struct TitlebarNewWorkspaceMenuButton: View {
         }
     }
 
-    private func fetchThenShowMenu() {
-        let providers = providerStore.providers
-        let needsFetch = providers.contains { providerStore.cachedItems[$0.id] == nil }
+    private var isFetchStale: Bool {
+        guard let lastFetch = lastFetchTime else { return true }
+        return Date().timeIntervalSince(lastFetch) > Self.fetchTTL
+    }
 
-        if needsFetch {
+    private func prefetchIfStale() {
+        guard isFetchStale else { return }
+        Task { @MainActor in
+            await fetchAllProviders()
+        }
+    }
+
+    private func fetchAllProviders() async {
+        for provider in providerStore.providers {
+            _ = await providerStore.fetchItems(for: provider)
+        }
+        lastFetchTime = Date()
+    }
+
+    private func fetchThenShowMenu() {
+        if isFetchStale {
             Task { @MainActor in
-                for provider in providers {
-                    if providerStore.cachedItems[provider.id] == nil {
-                        _ = await providerStore.fetchItems(for: provider)
-                    }
-                }
+                await fetchAllProviders()
                 showMenu()
             }
         } else {
