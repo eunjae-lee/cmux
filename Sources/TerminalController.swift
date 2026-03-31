@@ -15365,7 +15365,11 @@ class TerminalController {
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else { return }
                 tab.surfaceTTYNames[scope.panelId] = ttyName
-                PortScanner.shared.registerTTY(workspaceId: scope.workspaceId, panelId: scope.panelId, ttyName: ttyName)
+                if tab.isRemoteWorkspace {
+                    tab.syncRemotePortScanTTYs()
+                } else {
+                    PortScanner.shared.registerTTY(workspaceId: scope.workspaceId, panelId: scope.panelId, ttyName: ttyName)
+                }
             }
             return "OK"
         }
@@ -15404,7 +15408,11 @@ class TerminalController {
             }
 
             tab.surfaceTTYNames[surfaceId] = ttyName
-            PortScanner.shared.registerTTY(workspaceId: tab.id, panelId: surfaceId, ttyName: ttyName)
+            if tab.isRemoteWorkspace {
+                tab.syncRemotePortScanTTYs()
+            } else {
+                PortScanner.shared.registerTTY(workspaceId: tab.id, panelId: surfaceId, ttyName: ttyName)
+            }
         }
         return result
     }
@@ -15420,7 +15428,11 @@ class TerminalController {
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else { return }
-                PortScanner.shared.kick(workspaceId: scope.workspaceId, panelId: scope.panelId)
+                if tab.isRemoteWorkspace {
+                    tab.kickRemotePortScan(panelId: scope.panelId)
+                } else {
+                    PortScanner.shared.kick(workspaceId: scope.workspaceId, panelId: scope.panelId)
+                }
             }
             return "OK"
         }
@@ -15452,7 +15464,11 @@ class TerminalController {
                 surfaceId = focused
             }
 
-            PortScanner.shared.kick(workspaceId: tab.id, panelId: surfaceId)
+            if tab.isRemoteWorkspace {
+                tab.kickRemotePortScan(panelId: surfaceId)
+            } else {
+                PortScanner.shared.kick(workspaceId: tab.id, panelId: surfaceId)
+            }
         }
         return result
     }
