@@ -1746,19 +1746,33 @@ private struct TitlebarNewWorkspaceMenuButton: View {
                     }
                 )
                 tabManager.pendingWorkspaces.removeAll { $0.id == pending.id }
-                createWorkspaceFromResult(result)
+                createWorkspaceFromResult(result, provider: provider, item: item, inputs: inputs)
             } catch {
                 pending.state = .failed(error.localizedDescription)
             }
         }
     }
 
-    private func createWorkspaceFromResult(_ result: WorkspaceProviderCreateResult) {
+    private func createWorkspaceFromResult(
+        _ result: WorkspaceProviderCreateResult,
+        provider: WorkspaceProviderDefinition,
+        item: WorkspaceProviderItem,
+        inputs: [String: String]
+    ) {
         guard let tabManager = AppDelegate.shared?.tabManager else { return }
         let ws = tabManager.addWorkspace(
             title: result.title,
             workingDirectory: result.cwd,
             initialTerminalEnvironment: result.env ?? [:]
+        )
+
+        // Track provider origin for cleanup on close
+        ws.providerOrigin = WorkspaceProviderOrigin(
+            providerId: provider.id,
+            destroyCommand: provider.destroy,
+            itemId: item.id,
+            inputs: inputs,
+            cwd: result.cwd
         )
 
         if let color = result.color {

@@ -11,6 +11,17 @@ struct WorkspaceProviderDefinition: Codable, Sendable {
     var name: String
     var list: String
     var create: String
+    var destroy: String?
+}
+
+/// Metadata stored on a workspace to track its provider origin.
+/// Used for calling the destroy command on workspace close.
+struct WorkspaceProviderOrigin {
+    var providerId: String
+    var destroyCommand: String?
+    var itemId: String
+    var inputs: [String: String]
+    var cwd: String?
 }
 
 // MARK: - Provider List Response
@@ -201,6 +212,25 @@ enum WorkspaceProviderExecutor {
     }
 
     // MARK: - Shell Helpers
+
+    static func runDestroy(origin: WorkspaceProviderOrigin) async {
+        guard let destroy = origin.destroyCommand else { return }
+        var args = "\(destroy) --id \(shellEscape(origin.itemId))"
+        for (key, value) in origin.inputs {
+            args += " --input \(shellEscape("\(key)=\(value)"))"
+        }
+        if let cwd = origin.cwd {
+            args += " --cwd \(shellEscape(cwd))"
+        }
+        do {
+            let (_, _, exitCode) = try await runShellCommand(command: args, timeout: 30)
+            if exitCode != 0 {
+                NSLog("[WorkspaceProvider] destroy command exited with code %d for item %@", exitCode, origin.itemId)
+            }
+        } catch {
+            NSLog("[WorkspaceProvider] destroy command failed for item %@: %@", origin.itemId, error.localizedDescription)
+        }
+    }
 
     private static func shellEscape(_ str: String) -> String {
         "'" + str.replacingOccurrences(of: "'", with: "'\\''") + "'"

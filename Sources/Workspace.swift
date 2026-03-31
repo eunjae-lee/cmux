@@ -5486,6 +5486,9 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var currentDirectory: String
     private(set) var preferredBrowserProfileID: UUID?
 
+    /// Tracks which provider created this workspace, for cleanup on close.
+    var providerOrigin: WorkspaceProviderOrigin?
+
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
 
