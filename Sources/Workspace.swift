@@ -854,8 +854,11 @@ extension Workspace {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
                 if let command = surface.command {
-                    let isSuspended = surface.suspended == true
-                    sendInputWhenReady(command + (isSuspended ? "" : "\n"), to: panel)
+                    if surface.suspended == true {
+                        sendInputWhenReady(Self.suspendedCommandWrapper(command) + "\n", to: panel)
+                    } else {
+                        sendInputWhenReady(command + "\n", to: panel)
+                    }
                 }
             }
 
@@ -863,8 +866,12 @@ extension Workspace {
             if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
             if surface.focus == true { focusPanelId = panelId }
             if let command = surface.command, let terminal = terminalPanel(for: panelId) {
-                let isSuspended = surface.suspended == true
-                sendInputWhenReady(command + (isSuspended ? "" : "\n"), to: terminal)
+                if surface.suspended == true {
+                    let wrapper = Self.suspendedCommandWrapper(command)
+                    sendInputWhenReady(wrapper + "\n", to: terminal)
+                } else {
+                    sendInputWhenReady(command + "\n", to: terminal)
+                }
             }
 
         case .browser:
@@ -895,8 +902,11 @@ extension Workspace {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
                 if let command = surface.command {
-                    let isSuspended = surface.suspended == true
-                    sendInputWhenReady(command + (isSuspended ? "" : "\n"), to: panel)
+                    if surface.suspended == true {
+                        sendInputWhenReady(Self.suspendedCommandWrapper(command) + "\n", to: panel)
+                    } else {
+                        sendInputWhenReady(command + "\n", to: panel)
+                    }
                 }
             }
 
@@ -929,6 +939,14 @@ extension Workspace {
         default:
             break
         }
+    }
+
+    /// Wraps a command in a loop: shows "press Enter to run", runs the command,
+    /// and when it exits (Ctrl-C, crash, or normal quit), returns to the prompt.
+    private static func suspendedCommandWrapper(_ command: String) -> String {
+        // Shell-escape the command for embedding in a single-quoted heredoc
+        let escaped = command.replacingOccurrences(of: "'", with: "'\\''")
+        return "while true; do clear; printf '\\e[2m▶ Press Enter to run:\\e[0m \\e[1m\(escaped)\\e[0m\\n'; read; \(escaped); done"
     }
 
     private func sendInputWhenReady(_ text: String, to panel: TerminalPanel) {
