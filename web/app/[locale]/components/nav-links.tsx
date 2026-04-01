@@ -37,7 +37,7 @@ export function NavLinks() {
         target="_blank"
         rel="noopener noreferrer"
         onClick={() => posthog.capture("cmuxterm_github_clicked", { location: "navbar" })}
-        className="hidden xl:inline hover:text-foreground transition-colors"
+        className="hover:text-foreground transition-colors"
       >
         {t("github")}
       </a>

@@ -26,9 +26,9 @@ export function SiteHeader({
   return (
     <>
       <header className="sticky top-0 z-30 w-full bg-background">
-        <div className="w-full max-w-6xl mx-auto flex items-center px-6 h-12">
+        <div className="w-full max-w-6xl mx-auto grid h-12 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 px-6">
           {/* Left: logo + section */}
-          <div className="flex flex-1 items-center gap-3 min-w-0">
+          <div className="flex min-w-0 items-center gap-3">
             {!hideLogo && (
               <>
                 <Link href="/" className="flex items-center gap-2.5">
@@ -54,12 +54,12 @@ export function SiteHeader({
           </div>
 
           {/* Center: nav links */}
-          <nav className="hidden md:flex items-center justify-center gap-4 text-sm text-muted shrink-0">
+          <nav className="hidden min-w-0 items-center justify-center gap-4 text-sm text-muted md:flex">
             <NavLinks />
           </nav>
 
           {/* Right: GitHub stars + Download + theme + mobile */}
-          <div className="flex flex-1 items-center justify-end gap-3 min-w-0">
+          <div className="flex min-w-0 items-center justify-end gap-3">
             <GitHubStarsBadge />
             <div className="hidden md:block">
               <DownloadButton size="sm" location="navbar" />
