@@ -295,8 +295,16 @@ def main() -> int:
 
             status, row = _wait_for_remote_port(client, workspace_id, REMOTE_HTTP_PORT, timeout=15.0)
             remote = status.get("remote") or {}
-            detected_ports = remote.get("detected_ports") or []
-            listening_ports = row.get("listening_ports") or []
+            detected_ports = {
+                int(value)
+                for value in (remote.get("detected_ports") or [])
+                if str(value).isdigit()
+            }
+            listening_ports = {
+                int(value)
+                for value in (row.get("listening_ports") or [])
+                if str(value).isdigit()
+            }
             _must(
                 REMOTE_HTTP_PORT in detected_ports,
                 f"remote status should include detected port {REMOTE_HTTP_PORT}: {status}",

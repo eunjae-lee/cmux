@@ -4076,8 +4076,8 @@ class TerminalController {
             result = .ok([
                 "workspace_id": workspaceId.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-                "surface_id": v2OrNull(requestedSurfaceId?.uuidString),
-                "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "tty_name": ttyName,
             ])
         }
@@ -4140,8 +4140,8 @@ class TerminalController {
             result = .ok([
                 "workspace_id": workspaceId.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-                "surface_id": v2OrNull(requestedSurfaceId?.uuidString),
-                "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
             ])
         }
 
@@ -4154,7 +4154,8 @@ class TerminalController {
         requestedSurfaceId: UUID?,
         validSurfaceIds: Set<UUID>
     ) -> UUID? {
-        if let requestedSurfaceId, validSurfaceIds.contains(requestedSurfaceId) {
+        if let requestedSurfaceId {
+            guard validSurfaceIds.contains(requestedSurfaceId) else { return nil }
             return requestedSurfaceId
         }
 
