@@ -6,111 +6,152 @@ Branch: `feat/workspace-providers` (based on `main`)
 
 Adds an extension point so external tools can register as workspace providers. The "+" button in the titlebar shows provider items alongside "New Workspace". Providers handle project-specific logic (git worktrees, setup scripts, workflows) while cmux stays generic.
 
-## Files Changed
+## File Structure
 
-### New files
+### New files (no merge conflicts)
 
-#### `Sources/WorkspaceProvider.swift` (+348 lines)
-- `WorkspaceProviderDefinition` — provider config model (`id`, `name`, `list`, `create`, `destroy`)
-- `WorkspaceProviderItem` — list response model with optional `inputs`
-- `WorkspaceProviderInput` — input field model with `deriveFrom` for auto-fill
-- `WorkspaceProviderCreateResult` — create response model (title, cwd, color, env, layout)
-- `WorkspaceProviderOrigin` — metadata stored on workspaces for destroy on delete
-- `WorkspaceProviderStore` — `ObservableObject` managing providers, cached items, list/create execution
-- `WorkspaceProviderExecutor` — shell execution for list, create, destroy commands
-  - `runList` — runs list command, parses JSON response
-  - `runCreate` — runs create command with streaming, parses output file
-  - `runDestroy` — runs destroy command in background
-  - `runShellCommand` / `runShellCommandStreaming` — shell process helpers
+| File | Lines | Purpose |
+|------|-------|---------|
+| `Sources/WorkspaceProvider.swift` | 353 | Provider protocol models, store, shell execution |
+| `Sources/WorkspaceProviderTitlebarButton.swift` | 441 | Titlebar "+" menu, input panel, file watcher, layout application |
+| `Sources/WorkspaceProviderViews.swift` | 249 | Input sheet with deriveFrom, pending workspace item, log viewer |
+| `cmuxTests/WorkspaceProviderTests.swift` | 296 | Unit tests for parsing, escaping, persistence |
+| `docs/plan-workspace-providers.md` | 282 | Full design doc |
+| `docs/changes-in-fork.md` | — | This file |
+| `docs/macos-26-zig-workaround.md` | 90 | Zig + macOS 26 build workaround |
+| `scripts/dev.sh` | 11 | Quick dev build shortcut |
 
-#### `scripts/dev.sh` (+11 lines)
-- Quick shortcut: `./scripts/dev.sh [tag]` → `./scripts/reload.sh --tag <tag> --launch`
+### Modified upstream files (minimal changes)
 
-#### `docs/plan-workspace-providers.md` (+282 lines)
-- Full design doc covering protocol, UX flow, implementation details
+#### `Sources/Update/UpdateTitlebarAccessory.swift` (+29 lines)
 
-#### `docs/macos-26-zig-workaround.md` (+90 lines)
-- Documents Zig 0.15.2 + macOS 26 linker incompatibility and CI xcframework workaround
-
-### Modified files
-
-#### `Sources/Update/UpdateTitlebarAccessory.swift` (+423/-18 lines)
-- `TitlebarNewWorkspaceMenuButton` — replaces the simple "+" button with a menu button
-  - Shows NSMenu with "New Workspace" + provider items grouped by provider name
-  - Hover pre-fetches items with 10s TTL (`prefetchIfStale`, `fetchThenShowMenu`)
-  - `MenuAnchorView` (NSViewRepresentable) positions menu below the button
-  - `showInputPanel` — NSPanel-based input dialog (SwiftUI `.sheet` doesn't work from AppKit titlebar)
-  - `showErrorAlert` — NSAlert for errors (same reason)
-  - `startCreate` — creates workspace with setup terminal, sets `CMUX_PROVIDER_OUTPUT` env var, sends create command to terminal
-  - `watchForProviderOutput` — polls for output file (1s interval, 30min timeout)
-  - `applyProviderResult` — reads output file, sets provider origin, applies layout with env injection
-  - `injectEnvIntoLayout` — recursively merges workspace-level env into every surface
 - `TitlebarControlsView` — added `workspaceProviderStore` parameter
 - `TitlebarControlsAccessoryViewController` — passes provider store through init
 - `UpdateTitlebarAccessoryController` — stores and passes `workspaceProviderStore`
 - `HiddenTitlebarSidebarControlsView` — reads provider store from environment
-- `TitlebarMenuTarget` — NSObject target for NSMenu actions
+- Titlebar "+" button replaced with `TitlebarNewWorkspaceMenuButton` (defined in new file)
 
-#### `Sources/ContentView.swift` (+347/-24 lines)
+#### `Sources/ContentView.swift` (+110 lines)
+
 - `ContentView` — added `@EnvironmentObject var workspaceProviderStore`
-- `VerticalTabsSidebar` — renders `PendingWorkspaceItemView` after workspace list; adds `.opacity(0.4)` for suspended workspaces; hides X button for provider workspaces (`canCloseWorkspace && tab.providerOrigin == nil`)
 - `fullscreenControls` — passes `workspaceProviderStore` to `TitlebarControlsView`
-- `workspaceContextMenu` — added provider-specific section:
-  - **Stop** (active → suspend) / **Activate** (suspended → active)
-  - **Delete Workspace** with NSAlert confirmation dialog → calls destroy → closes
-  - Hides Close Workspace / Close Others / Close Above / Close Below for provider workspaces
-- `PendingWorkspaceItemView` — sidebar item with spinner + progress text during creation, error state with ⚠️ + dismiss, ⓘ log button
-- `PendingWorkspaceLogButton` / `PendingWorkspaceLogView` — floating NSPanel with scrollable monospace log, auto-scrolls, shows error at bottom
-- `WorkspaceProviderInputSheet` — input form with `deriveFrom` support (auto-slugify), internal `@State` for reactive derived fields, `bindingForInput` helper to avoid complex expressions
-- `SidebarFooterButtons` — removed `workspaceProviderStore` dependency (moved to titlebar)
+- `VerticalTabsSidebar` ForEach — added `PendingWorkspaceItemView` after workspace list, `.opacity(0.4)` for suspended workspaces, hidden X button for provider workspaces
+- `workspaceContextMenu` — added provider section: Stop/Activate/Delete Workspace with confirmation dialog
+- Hidden Close Workspace / Close Others / Close Above / Close Below for provider workspaces
 
-#### `Sources/Workspace.swift` (+116/-2 lines)
-- Added properties: `providerOrigin: WorkspaceProviderOrigin?`, `isSuspended: Bool`, `suspendedLayout: CmuxLayoutNode?`
-- `activateSuspended()` — creates terminals from saved layout
-- `suspend()` — tears down all panels, sets `isSuspended = true`
-- `suspendedCommandWrapper(_:)` — generates `while true; do clear; printf '▶ Press Enter to run:...'; read; <cmd>; done`
-- `sendInputWhenReady` — changed from `private` to `internal` for titlebar create flow
-- `configureExistingSurface` / `createNewSurface` — uses `suspendedCommandWrapper` when `surface.suspended == true`
-- `sessionSnapshot` — serializes `providerOrigin` and `suspendedLayout` (JSON-encoded `CmuxLayoutNode`)
-- `restoreSessionSnapshot` — restores `providerOrigin`; provider workspaces skip terminal restoration and set `isSuspended = true`
+#### `Sources/Workspace.swift` (+122 lines)
 
-#### `Sources/TabManager.swift` (+61/-2 lines)
-- `PendingWorkspace` class — `ObservableObject` with `title`, `progress`, `logLines`, `state` (.loading/.failed), `providerOrigin`, `appendProgress()`
-- `pendingWorkspaces: [PendingWorkspace]` published array
-- `selectWorkspace` — calls `activateSuspended()` when selecting a suspended workspace
-- `closeWorkspace` — removed auto-destroy (destroy only on explicit Delete)
-- Session restore selection — skips suspended workspaces; creates fresh default workspace if all are suspended
+- Properties: `providerOrigin`, `isSuspended`, `suspendedLayout`
+- `sendCommandToFirstTerminal()` — public API for sending command to first terminal
+- `activateSuspended()` / `suspend()` — lifecycle methods
+- `suspendedCommandWrapper()` — generates "Press Enter to run" shell loop
+- `configureExistingSurface` / `createNewSurface` — suspended command support
+- `sessionSnapshot()` — serializes provider origin + suspended layout
+- `restoreSessionSnapshot()` — restores as suspended for provider workspaces
+
+#### `Sources/TabManager.swift` (+61 lines)
+
+- `PendingWorkspace` class — model with progress, log lines, state, provider origin
+- `pendingWorkspaces` published array
+- `selectWorkspace` — activates suspended workspaces on selection
+- Session restore — skips suspended for initial selection, creates fresh workspace if all suspended
 
 #### `Sources/SessionPersistence.swift` (+12 lines)
-- `SessionProviderOriginSnapshot` — Codable struct for persisting provider origin
-- `SessionWorkspaceSnapshot` — added optional `providerOrigin` and `suspendedLayoutJSON` fields
+
+- `SessionProviderOriginSnapshot` struct
+- `SessionWorkspaceSnapshot` — added `providerOrigin` and `suspendedLayoutJSON` optional fields
 
 #### `Sources/CmuxConfig.swift` (+28 lines)
-- `CmuxSurfaceDefinition` — added `suspended: Bool?` field
-- `CmuxConfigFile` — added `workspace_providers: [WorkspaceProviderDefinition]?`
-- `CmuxConfigStore` — added `onProvidersChanged` callback, fires on config load
 
-#### `Sources/AppDelegate.swift` (+8/-1 lines)
-- `workspaceProviderStoreForTitlebar` — shared `WorkspaceProviderStore` instance used by both titlebar (AppKit) and SwiftUI
-- Window creation reuses the shared store instead of creating a new one
+- `CmuxSurfaceDefinition` — added `suspended: Bool?`
+- `CmuxConfigFile` — added `workspace_providers`
+- `CmuxConfigStore` — added `onProvidersChanged` callback
 
 #### `Sources/cmuxApp.swift` (+8 lines)
-- `workspaceProviderStore` computed property returning `appDelegate.workspaceProviderStoreForTitlebar`
-- `.environmentObject(workspaceProviderStore)` injected into WindowGroup
-- `cmuxConfigStore.onProvidersChanged` wired to update the shared store
 
-#### `GhosttyTabs.xcodeproj/project.pbxproj` (+4 lines)
-- Added `WorkspaceProvider.swift` file reference
+- `workspaceProviderStore` computed property from AppDelegate's shared store
+- `.environmentObject(workspaceProviderStore)` in WindowGroup
+- `onProvidersChanged` wiring
+
+#### `Sources/AppDelegate.swift` (+8 lines)
+
+- `workspaceProviderStoreForTitlebar` shared instance
+- Window creation reuses shared store
+
+#### `GhosttyTabs.xcodeproj/project.pbxproj` (+12 lines)
+
+- File references for `WorkspaceProvider.swift`, `WorkspaceProviderTitlebarButton.swift`, `WorkspaceProviderViews.swift`
 
 ## How to replay
 
-1. Apply all changes from the diff: `git diff main...feat/workspace-providers`
-2. The key architectural decisions:
-   - Provider protocol is CLI-based: `list` (JSON to stdout), `create` (runs in terminal, writes JSON to `$CMUX_PROVIDER_OUTPUT`), `destroy` (background cleanup)
-   - Titlebar "+" uses NSMenu (not SwiftUI Menu) because it's in an AppKit titlebar accessory
-   - Input dialogs use NSPanel (not SwiftUI `.sheet`) for the same reason
-   - `WorkspaceProviderStore` is shared between AppDelegate and cmuxApp via a stored property on AppDelegate
-   - Provider workspaces restore as suspended (no terminals) to avoid resource waste on app launch
-   - `suspended` command wrapper is a shell `while` loop that clears screen and waits for Enter
-   - `deriveFrom` on input fields enables auto-slugify (e.g. session name → branch name)
-   - Workspace-level env vars are injected into every surface by `injectEnvIntoLayout`
+### 1. Add new files
+
+Copy these files as-is — they have no dependencies on fork-specific changes:
+- `Sources/WorkspaceProvider.swift`
+- `Sources/WorkspaceProviderTitlebarButton.swift`
+- `Sources/WorkspaceProviderViews.swift`
+- `cmuxTests/WorkspaceProviderTests.swift`
+- `scripts/dev.sh`
+- `docs/plan-workspace-providers.md`
+
+Add them to the Xcode project.
+
+### 2. Apply minimal upstream changes
+
+Each upstream file needs a small, localized change:
+
+**CmuxConfig.swift:**
+- Add `suspended: Bool?` to `CmuxSurfaceDefinition`
+- Add `workspace_providers: [WorkspaceProviderDefinition]?` to `CmuxConfigFile`
+- Add `onProvidersChanged` callback to `CmuxConfigStore`, fire it in `loadAll()`
+
+**SessionPersistence.swift:**
+- Add `SessionProviderOriginSnapshot` struct
+- Add two optional fields to `SessionWorkspaceSnapshot`
+
+**AppDelegate.swift:**
+- Add `workspaceProviderStoreForTitlebar = WorkspaceProviderStore()` property
+- Pass it to `UpdateTitlebarAccessoryController` init
+- Reuse it in window creation instead of creating a new store
+
+**cmuxApp.swift:**
+- Add computed `workspaceProviderStore` from AppDelegate
+- Inject as environment object
+- Wire `onProvidersChanged`
+
+**UpdateTitlebarAccessory.swift:**
+- Add `workspaceProviderStore` parameter to `TitlebarControlsView`
+- Thread it through `TitlebarControlsAccessoryViewController` and `HiddenTitlebarSidebarControlsView`
+- Replace "+" button with `TitlebarNewWorkspaceMenuButton`
+
+**TabManager.swift:**
+- Add `PendingWorkspace` class and `pendingWorkspaces` array
+- Add suspended activation in `selectWorkspace`
+- Add suspended-aware selection in session restore
+
+**Workspace.swift:**
+- Add `providerOrigin`, `isSuspended`, `suspendedLayout` properties
+- Add `sendCommandToFirstTerminal`, `activateSuspended`, `suspend` methods
+- Add `suspendedCommandWrapper` for suspended command support
+- Modify `configureExistingSurface` / `createNewSurface` for suspended commands
+- Add provider origin to session snapshot/restore
+
+**ContentView.swift:**
+- Add `workspaceProviderStore` environment object to `ContentView`
+- Add pending workspace rendering in sidebar ForEach
+- Add `.opacity(0.4)` for suspended workspaces
+- Hide X button for provider workspaces
+- Add provider context menu section (Stop/Activate/Delete)
+- Hide Close Workspace options for provider workspaces
+
+### Key architectural decisions
+
+1. **Provider protocol** — CLI-based: `list` (JSON stdout), `create` (runs in terminal, writes to `$CMUX_PROVIDER_OUTPUT`), `destroy` (background cleanup)
+2. **Titlebar integration** — NSMenu + NSPanel (not SwiftUI Menu/sheet) because AppKit titlebar accessory
+3. **Shared store** — `WorkspaceProviderStore` shared between AppDelegate and cmuxApp via stored property
+4. **Suspended workspaces** — provider workspaces restore without terminals, activated on click
+5. **Suspended commands** — shell `while` loop: clear → prompt → read → execute → repeat
+6. **deriveFrom** — input field auto-fill by slugifying another field's value
+7. **Env injection** — workspace-level env merged recursively into every layout surface
+8. **File watcher** — `DispatchSource` monitors temp directory for provider output file
+9. **Lifecycle** — Stop (suspend), Delete (destroy + close), no regular Close for provider workspaces
