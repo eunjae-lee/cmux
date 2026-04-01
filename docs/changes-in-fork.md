@@ -155,3 +155,4 @@ Each upstream file needs a small, localized change:
 7. **Env injection** — workspace-level env merged recursively into every layout surface
 8. **File watcher** — `DispatchSource` monitors temp directory for provider output file
 9. **Lifecycle** — Stop (suspend), Delete (destroy + close), no regular Close for provider workspaces
+10. **Browser isolation** — `isolate_browser: true` on provider gives each workspace its own `WKWebsiteDataStore`, reusing the remote workspace pattern

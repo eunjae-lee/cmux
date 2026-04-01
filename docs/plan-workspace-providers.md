@@ -38,9 +38,10 @@ In `~/.config/cmux/cmux.json`:
     {
       "id": "cmux-worktree",
       "name": "Projects",
-      "list": "/path/to/bun run /path/to/cmux-worktree/src/cli.ts list",
-      "create": "/path/to/bun run /path/to/cmux-worktree/src/cli.ts create",
-      "destroy": "/path/to/bun run /path/to/cmux-worktree/src/cli.ts destroy"
+      "list": "cmux-worktree list",
+      "create": "cmux-worktree create",
+      "destroy": "cmux-worktree destroy",
+      "isolate_browser": true
     }
   ]
 }
@@ -55,6 +56,7 @@ Per-project `.cmux/cmux.json` can also define providers (merged with global).
 | `list` | string | Shell command that outputs JSON list of items |
 | `create` | string | Shell command that runs in a live terminal |
 | `destroy` | string? | Shell command called when a provider workspace is deleted |
+| `isolate_browser` | bool? | When true, each workspace gets its own browser storage (cookies, localStorage). Default: false (shared across workspaces). |
 
 ### Protocol
 
