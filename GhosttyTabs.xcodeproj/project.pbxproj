@@ -73,6 +73,8 @@
 		A5001650 /* CmuxConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001651 /* CmuxConfig.swift */; };
 		A5001652 /* CmuxConfigExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001653 /* CmuxConfigExecutor.swift */; };
 		A5001660 /* WorkspaceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001661 /* WorkspaceProvider.swift */; };
+		A5001680 /* WorkspaceProviderViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001681 /* WorkspaceProviderViews.swift */; };
+		A5001670 /* WorkspaceProviderTitlebarButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001671 /* WorkspaceProviderTitlebarButton.swift */; };
 		A5001654 /* CmuxDirectoryTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001655 /* CmuxDirectoryTrust.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
@@ -267,6 +269,8 @@
 		A5001651 /* CmuxConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfig.swift; sourceTree = "<group>"; };
 		A5001653 /* CmuxConfigExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigExecutor.swift; sourceTree = "<group>"; };
 		A5001661 /* WorkspaceProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceProvider.swift; sourceTree = "<group>"; };
+		A5001681 /* WorkspaceProviderViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceProviderViews.swift; sourceTree = "<group>"; };
+		A5001671 /* WorkspaceProviderTitlebarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceProviderTitlebarButton.swift; sourceTree = "<group>"; };
 		A5001655 /* CmuxDirectoryTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxDirectoryTrust.swift; sourceTree = "<group>"; };
 		A5001641 /* RemoteRelayZshBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelayZshBootstrap.swift; sourceTree = "<group>"; };
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
@@ -510,6 +514,8 @@
 				A5001651 /* CmuxConfig.swift */,
 				A5001653 /* CmuxConfigExecutor.swift */,
 				A5001661 /* WorkspaceProvider.swift */,
+				A5001681 /* WorkspaceProviderViews.swift */,
+				A5001671 /* WorkspaceProviderTitlebarButton.swift */,
 				A5001655 /* CmuxDirectoryTrust.swift */,
 			);
 			path = Sources;
@@ -832,6 +838,8 @@
 				A5001650 /* CmuxConfig.swift in Sources */,
 			A5001652 /* CmuxConfigExecutor.swift in Sources */,
 			A5001660 /* WorkspaceProvider.swift in Sources */,
+			A5001680 /* WorkspaceProviderViews.swift in Sources */,
+			A5001670 /* WorkspaceProviderTitlebarButton.swift in Sources */,
 			A5001654 /* CmuxDirectoryTrust.swift in Sources */,
 		);
 			runOnlyForDeploymentPostprocessing = 0;
