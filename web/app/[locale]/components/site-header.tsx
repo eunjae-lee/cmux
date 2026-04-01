@@ -60,7 +60,7 @@ export function SiteHeader({
 
           {/* Right: GitHub stars + Download + theme + mobile */}
           <div className="flex flex-1 items-center justify-end gap-3 min-w-0">
-            <GitHubStarsBadge className="hidden xl:inline-flex" />
+            <GitHubStarsBadge />
             <div className="hidden md:block">
               <DownloadButton size="sm" location="navbar" />
             </div>
