@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "==> Pre-push: building release..."
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Only run for pushes to eunjae-lee remote
+while read local_ref local_sha remote_ref remote_sha; do
+  : # consume stdin (required by pre-push hook)
+done
+
+"$PROJECT_DIR/scripts/build-release.sh"
