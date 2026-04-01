@@ -4,7 +4,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 DERIVED_DATA="/tmp/cmux-release"
-DROPBOX_DIR="$HOME/Dropbox"
 
 cd "$PROJECT_DIR"
 
@@ -31,12 +30,6 @@ echo "==> Zipping..."
 ZIP_PATH="/tmp/cmux-fork.zip"
 rm -f "$ZIP_PATH"
 ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
-
-# Also copy to Dropbox
-if [ -d "$DROPBOX_DIR" ]; then
-  cp "$ZIP_PATH" "$DROPBOX_DIR/cmux.zip"
-  echo "==> Copied to $DROPBOX_DIR/cmux.zip"
-fi
 
 SIZE=$(du -sh "$ZIP_PATH" | cut -f1)
 echo "==> Zip: $ZIP_PATH ($SIZE)"
