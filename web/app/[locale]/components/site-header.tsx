@@ -26,7 +26,7 @@ export function SiteHeader({
   return (
     <>
       <header className="sticky top-0 z-30 w-full bg-background">
-        <div className="w-full max-w-6xl mx-auto flex h-12 items-center px-6 min-[810px]:grid min-[810px]:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] min-[810px]:gap-2 lg:gap-4">
+        <div className="w-full max-w-6xl mx-auto flex h-12 items-center px-6 min-[840px]:grid min-[840px]:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] min-[840px]:gap-2 lg:gap-4">
           {/* Left: logo + section */}
           <div className="flex min-w-0 items-center gap-3">
             {!hideLogo && (
@@ -54,14 +54,14 @@ export function SiteHeader({
           </div>
 
           {/* Center: nav links */}
-          <nav className="hidden min-w-0 items-center justify-center gap-2 text-[13px] text-muted min-[810px]:flex lg:gap-4 lg:text-sm">
+          <nav className="hidden min-w-0 items-center justify-center gap-2 text-[13px] text-muted min-[840px]:flex lg:gap-4 lg:text-sm">
             <NavLinks />
           </nav>
 
           {/* Right: GitHub stars + Download + theme + mobile */}
-          <div className="ml-auto flex min-w-0 items-center justify-end gap-1.5 min-[810px]:ml-0 lg:gap-3">
+          <div className="ml-auto flex min-w-0 items-center justify-end gap-1.5 min-[840px]:ml-0 lg:gap-3">
             <GitHubStarsBadge className="gap-1 pr-0 lg:gap-1.5 lg:pr-1" />
-            <div className="hidden min-[810px]:block">
+            <div className="hidden min-[840px]:block">
               <DownloadButton
                 size="sm"
                 location="navbar"
@@ -84,7 +84,7 @@ export function SiteHeader({
         ref={drawerRef}
         role="navigation"
         aria-label="Main navigation"
-        className={`fixed inset-y-0 right-0 z-50 w-56 bg-background border-l border-border overflow-y-auto transition-transform min-[810px]:hidden ${
+        className={`fixed inset-y-0 right-0 z-50 w-56 bg-background border-l border-border overflow-y-auto transition-transform min-[840px]:hidden ${
           open ? "translate-x-0" : "translate-x-full invisible"
         }`}
       >
