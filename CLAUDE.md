@@ -109,6 +109,13 @@ This creates an isolated app with its own name, bundle ID, socket, and derived d
 
 Before launching a new tagged run, clean up any older tags you started in this session (quit old tagged app + remove its `/tmp` socket/derived data).
 
+## Git push policy
+
+- **Commit frequently** — small, logical commits are fine.
+- **Push sparingly** — the pre-push hook triggers a full release build + GitHub release upload + homebrew tap update. Only push when you have a batch of changes ready, not after every commit.
+- **Never push automatically** after a commit. Always let the user decide when to push.
+- When the user asks to "commit", just commit. Do NOT push unless explicitly asked.
+
 ## Debug event log
 
 All debug events (keys, mouse, focus, splits, tabs) go to a unified log in DEBUG builds:
