@@ -31,7 +31,7 @@ export function GitHubStarsBadge({
   className?: string;
 } = {}) {
   const [stars, setStars] = useState<number | null>(null);
-  const classes = `${className ?? "inline-flex"} items-center gap-1.5 pr-1 text-sm text-muted hover:text-foreground transition-colors animate-fade-in`;
+  const classes = `inline-flex items-center gap-1.5 pr-1 text-sm text-muted hover:text-foreground transition-colors animate-fade-in ${className ?? ""}`;
 
   useEffect(() => {
     fetch("/api/github-stars")

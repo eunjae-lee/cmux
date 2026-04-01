@@ -26,7 +26,7 @@ export function SiteHeader({
   return (
     <>
       <header className="sticky top-0 z-30 w-full bg-background">
-        <div className="w-full max-w-6xl mx-auto grid h-12 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 px-6">
+        <div className="w-full max-w-6xl mx-auto grid h-12 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-6 lg:gap-4">
           {/* Left: logo + section */}
           <div className="flex min-w-0 items-center gap-3">
             {!hideLogo && (
@@ -54,15 +54,19 @@ export function SiteHeader({
           </div>
 
           {/* Center: nav links */}
-          <nav className="hidden min-w-0 items-center justify-center gap-4 text-sm text-muted md:flex">
+          <nav className="hidden min-w-0 items-center justify-center gap-2 text-[13px] text-muted md:flex lg:gap-4 lg:text-sm">
             <NavLinks />
           </nav>
 
           {/* Right: GitHub stars + Download + theme + mobile */}
-          <div className="flex min-w-0 items-center justify-end gap-3">
-            <GitHubStarsBadge />
+          <div className="flex min-w-0 items-center justify-end gap-1.5 lg:gap-3">
+            <GitHubStarsBadge className="gap-1 pr-0 lg:gap-1.5 lg:pr-1" />
             <div className="hidden md:block">
-              <DownloadButton size="sm" location="navbar" />
+              <DownloadButton
+                size="sm"
+                location="navbar"
+                className="gap-1.5 px-3 text-[11px] lg:gap-2 lg:px-4 lg:text-xs"
+              />
             </div>
             <ThemeToggle />
             <MobileDrawerToggle
