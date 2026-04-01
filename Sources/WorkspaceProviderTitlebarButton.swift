@@ -244,7 +244,8 @@ struct TitlebarNewWorkspaceMenuButton: View {
             destroyCommand: provider.destroy,
             itemId: item.id,
             inputs: inputs,
-            cwd: nil
+            cwd: nil,
+            isolateBrowser: provider.isolate_browser == true
         )
 
         // Send the create command to the terminal
@@ -350,7 +351,8 @@ struct TitlebarNewWorkspaceMenuButton: View {
             destroyCommand: provider.destroy,
             itemId: item.id,
             inputs: inputs,
-            cwd: result.cwd
+            cwd: result.cwd,
+            isolateBrowser: provider.isolate_browser == true
         )
 
         if let color = result.color {

@@ -12,6 +12,9 @@ struct WorkspaceProviderDefinition: Codable, Sendable {
     var list: String
     var create: String
     var destroy: String?
+    /// When true, each workspace from this provider gets its own isolated
+    /// browser storage (cookies, localStorage, etc.).
+    var isolate_browser: Bool?
 }
 
 /// Metadata stored on a workspace to track its provider origin.
@@ -22,6 +25,7 @@ struct WorkspaceProviderOrigin {
     var itemId: String
     var inputs: [String: String]
     var cwd: String?
+    var isolateBrowser: Bool
 }
 
 // MARK: - Provider List Response

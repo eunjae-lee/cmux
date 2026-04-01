@@ -284,7 +284,8 @@ extension Workspace {
                 destroyCommand: $0.destroyCommand,
                 itemId: $0.itemId,
                 inputs: $0.inputs,
-                cwd: $0.cwd
+                cwd: $0.cwd,
+                isolateBrowser: $0.isolateBrowser
             )
         }
 
@@ -322,7 +323,8 @@ extension Workspace {
                 destroyCommand: origin.destroyCommand,
                 itemId: origin.itemId,
                 inputs: origin.inputs,
-                cwd: origin.cwd
+                cwd: origin.cwd,
+                isolateBrowser: origin.isolateBrowser ?? false
             )
         }
 
@@ -7943,6 +7945,7 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
+        let isolateBrowser = providerOrigin?.isolateBrowser == true
         let browserPanel = BrowserPanel(
             workspaceId: id,
             profileID: resolvedNewBrowserProfileID(
@@ -7952,8 +7955,8 @@ final class Workspace: Identifiable, ObservableObject {
             initialURL: url,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             proxyEndpoint: remoteProxyEndpoint,
-            isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
+            isRemoteWorkspace: isRemoteWorkspace || isolateBrowser,
+            remoteWebsiteDataStoreIdentifier: (isRemoteWorkspace || isolateBrowser) ? id : nil
         )
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle

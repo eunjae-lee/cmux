@@ -333,6 +333,7 @@ struct SessionProviderOriginSnapshot: Codable, Sendable {
     var itemId: String
     var inputs: [String: String]
     var cwd: String?
+    var isolateBrowser: Bool?
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
