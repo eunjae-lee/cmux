@@ -54,6 +54,24 @@ _cmux_restore_scrollback_once() {
 }
 _cmux_restore_scrollback_once
 
+typeset -g _CMUX_CLAUDE_WRAPPER=""
+_cmux_install_claude_wrapper() {
+    local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    [[ -n "$integration_dir" ]] || return 0
+
+    integration_dir="${integration_dir%/}"
+    local bundle_dir="${integration_dir%/shell-integration}"
+    local wrapper_path="$bundle_dir/bin/claude"
+    [[ -x "$wrapper_path" ]] || return 0
+
+    # Keep the bundled claude wrapper ahead of later PATH mutations. Install it
+    # via eval so an existing `alias claude=...` cannot break parsing.
+    _CMUX_CLAUDE_WRAPPER="$wrapper_path"
+    builtin unalias claude >/dev/null 2>&1 || true
+    eval 'claude() { "$_CMUX_CLAUDE_WRAPPER" "$@"; }'
+}
+_cmux_install_claude_wrapper
+
 # Throttle heavy work to avoid prompt latency.
 typeset -g _CMUX_PWD_LAST_PWD=""
 typeset -g _CMUX_GIT_LAST_PWD=""
@@ -681,7 +699,7 @@ _cmux_run_pr_probe_with_timeout() {
     wait "$probe_pid"
 }
 
-_cmux_stop_pr_poll_loop() {
+_cmux_halt_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
         # Process-group kill: background jobs are process-group leaders, so
         # negative PID kills the loop + all descendants (gh, sleep) without
@@ -693,6 +711,10 @@ _cmux_stop_pr_poll_loop() {
     [[ -n "$signal_path" ]] && /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
     _CMUX_PR_POLL_PID=""
     _CMUX_PR_POLL_PWD=""
+}
+
+_cmux_stop_pr_poll_loop() {
+    _cmux_halt_pr_poll_loop
     _cmux_pr_cache_clear
 }
 
@@ -712,7 +734,7 @@ _cmux_start_pr_poll_loop() {
     fi
 
     if [[ -n "$_CMUX_PR_POLL_PID" ]] && kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
-        _cmux_stop_pr_poll_loop
+        _cmux_halt_pr_poll_loop
     else
         _CMUX_PR_POLL_PID=""
     fi
@@ -792,6 +814,56 @@ _cmux_start_git_head_watch() {
     _CMUX_GIT_HEAD_WATCH_PID=$!
 }
 
+_cmux_command_starts_nested_shell() {
+    local cmd="$1"
+    local -a words
+    words=("${(z)cmd}")
+
+    local index=1
+    local word base
+    while (( index <= ${#words} )); do
+        word="${words[index]}"
+
+        case "$word" in
+            *=*)
+                index=$(( index + 1 ))
+                continue ;;
+            exec|command|builtin|noglob|time)
+                index=$(( index + 1 ))
+                continue ;;
+            env)
+                index=$(( index + 1 ))
+                while (( index <= ${#words} )); do
+                    word="${words[index]}"
+                    case "$word" in
+                        -*|*=*)
+                            index=$(( index + 1 ))
+                            continue ;;
+                    esac
+                    break
+                done
+                continue ;;
+        esac
+
+        base="${word:t}"
+        case "$base" in
+            bash|zsh|sh|fish|nu|nix-shell)
+                return 0 ;;
+            nix)
+                local next_index=$(( index + 1 ))
+                local next_word="${words[next_index]}"
+                case "$next_word" in
+                    develop|shell)
+                        return 0 ;;
+                esac ;;
+        esac
+
+        return 1
+    done
+
+    return 1
+}
+
 _cmux_preexec() {
     _cmux_tmux_sync_cmux_environment
 
@@ -816,6 +888,11 @@ _cmux_preexec() {
     # Register TTY + kick batched port scan for foreground commands (servers).
     _cmux_report_tty_once
     _cmux_ports_kick
+    _cmux_halt_pr_poll_loop
+    _cmux_stop_git_head_watch
+    if _cmux_command_starts_nested_shell "$cmd"; then
+        return 0
+    fi
     _cmux_start_git_head_watch
 }
 

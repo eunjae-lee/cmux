@@ -43,7 +43,31 @@ _cmux_restore_scrollback_once() {
     fi
 }
 _cmux_restore_scrollback_once
+_CMUX_CLAUDE_WRAPPER="${_CMUX_CLAUDE_WRAPPER:-}"
+_cmux_install_claude_wrapper() {
+    local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    local existing_type=""
+    [[ -n "$integration_dir" ]] || return 0
 
+    integration_dir="${integration_dir%/}"
+    local bundle_dir="${integration_dir%/shell-integration}"
+    local wrapper_path="$bundle_dir/bin/claude"
+    [[ -x "$wrapper_path" ]] || return 0
+
+    existing_type="$(type -t claude 2>/dev/null || true)"
+    case "$existing_type" in
+        alias|function)
+            return 0
+            ;;
+    esac
+
+    # Keep the bundled claude wrapper ahead of later PATH mutations. Install it
+    # via eval so an existing `alias claude=...` cannot break parsing.
+    _CMUX_CLAUDE_WRAPPER="$wrapper_path"
+    unalias claude >/dev/null 2>&1 || true
+    eval 'claude() { "$_CMUX_CLAUDE_WRAPPER" "$@"; }'
+}
+_cmux_install_claude_wrapper
 _cmux_now() {
     printf '%s\n' "${EPOCHSECONDS:-$SECONDS}"
 }
@@ -277,7 +301,7 @@ _cmux_ports_kick() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    _CMUX_PORTS_LAST_RUN=$SECONDS
+    _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
     {
         _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     } >/dev/null 2>&1 & disown
@@ -564,7 +588,7 @@ _cmux_run_pr_probe_with_timeout() {
     wait "$probe_pid"
 }
 
-_cmux_stop_pr_poll_loop() {
+_cmux_halt_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
         # Process-group kill: background jobs are process-group leaders, so
         # negative PID kills the loop + all descendants (gh, sleep) without
@@ -576,6 +600,10 @@ _cmux_stop_pr_poll_loop() {
     [[ -n "$signal_path" ]] && /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
     _CMUX_PR_POLL_PID=""
     _CMUX_PR_POLL_PWD=""
+}
+
+_cmux_stop_pr_poll_loop() {
+    _cmux_halt_pr_poll_loop
     _cmux_pr_cache_clear
 }
 
@@ -595,7 +623,7 @@ _cmux_start_pr_poll_loop() {
     fi
 
     if [[ -n "$_CMUX_PR_POLL_PID" ]] && kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
-        _cmux_stop_pr_poll_loop
+        _cmux_halt_pr_poll_loop
     else
         _CMUX_PR_POLL_PID=""
     fi
@@ -632,7 +660,58 @@ _cmux_bash_cleanup() {
     _cmux_stop_pr_poll_loop
 }
 
+_cmux_command_starts_nested_shell() {
+    local cmd="$1"
+    local -a words=()
+    read -r -a words <<< "$cmd"
+
+    local index=0
+    local word base
+    while (( index < ${#words[@]} )); do
+        word="${words[index]}"
+
+        case "$word" in
+            *=*)
+                index=$(( index + 1 ))
+                continue ;;
+            exec|command|builtin|noglob|time)
+                index=$(( index + 1 ))
+                continue ;;
+            env)
+                index=$(( index + 1 ))
+                while (( index < ${#words[@]} )); do
+                    word="${words[index]}"
+                    case "$word" in
+                        -*|*=*)
+                            index=$(( index + 1 ))
+                            continue ;;
+                    esac
+                    break
+                done
+                continue ;;
+        esac
+
+        base="${word##*/}"
+        case "$base" in
+            bash|zsh|sh|fish|nu|nix-shell)
+                return 0 ;;
+            nix)
+                local next_index=$(( index + 1 ))
+                local next_word="${words[next_index]:-}"
+                case "$next_word" in
+                    develop|shell)
+                        return 0 ;;
+                esac ;;
+        esac
+
+        return 1
+    done
+
+    return 1
+}
+
 _cmux_preexec_command() {
+    local cmd="${1:-${BASH_COMMAND:-}}"
     _cmux_tmux_sync_cmux_environment
 
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
@@ -649,10 +728,14 @@ _cmux_preexec_command() {
     _cmux_report_shell_activity_state running
     _cmux_report_tty_once
     _cmux_ports_kick
+    _cmux_halt_pr_poll_loop
+    if _cmux_command_starts_nested_shell "$cmd"; then
+        return 0
+    fi
 }
 
 _cmux_bash_preexec_hook() {
-    _cmux_preexec_command
+    _cmux_preexec_command "$@"
 }
 
 _cmux_prompt_command() {
@@ -829,11 +912,11 @@ _cmux_install_prompt_command() {
         esac
     fi
 
-    if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
+        if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
         if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )); then
-            builtin readonly _CMUX_BASH_PS0='${ _cmux_bash_preexec_hook; }'
+            builtin readonly _CMUX_BASH_PS0='${ _cmux_bash_preexec_hook "$BASH_COMMAND"; }'
         else
-            builtin readonly _CMUX_BASH_PS0='$(_cmux_bash_preexec_hook >/dev/null)'
+            builtin readonly _CMUX_BASH_PS0='$(_cmux_bash_preexec_hook "$BASH_COMMAND" >/dev/null)'
         fi
         if [[ "$PS0" != *"${_CMUX_BASH_PS0}"* ]]; then
             PS0=$PS0"${_CMUX_BASH_PS0}"
