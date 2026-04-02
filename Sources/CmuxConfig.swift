@@ -261,6 +261,8 @@ struct CmuxSurfaceDefinition: Codable, Sendable {
     /// Shell command that must exit 0 before a browser surface loads its URL.
     /// Polled with exponential backoff (1s → 10s cap).
     var wait_for: String?
+    /// File path to log all terminal output to in real time.
+    var log_to: String?
 }
 
 enum CmuxSurfaceType: String, Codable, Sendable {

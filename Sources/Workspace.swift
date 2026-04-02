@@ -935,10 +935,11 @@ extension Workspace {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
                 if let command = surface.command {
+                    let cmd = Self.applyLogging(command, surface: surface)
                     if surface.suspended == true {
-                        sendInputWhenReady(Self.suspendedCommandWrapper(command) + "\n", to: panel)
+                        sendInputWhenReady(Self.suspendedCommandWrapper(cmd) + "\n", to: panel)
                     } else {
-                        sendInputWhenReady(command + "\n", to: panel)
+                        sendInputWhenReady(cmd + "\n", to: panel)
                     }
                 }
             }
@@ -947,11 +948,12 @@ extension Workspace {
             if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
             if surface.focus == true { focusPanelId = panelId }
             if let command = surface.command, let terminal = terminalPanel(for: panelId) {
+                let cmd = Self.applyLogging(command, surface: surface)
                 if surface.suspended == true {
-                    let wrapper = Self.suspendedCommandWrapper(command)
+                    let wrapper = Self.suspendedCommandWrapper(cmd)
                     sendInputWhenReady(wrapper + "\n", to: terminal)
                 } else {
-                    sendInputWhenReady(command + "\n", to: terminal)
+                    sendInputWhenReady(cmd + "\n", to: terminal)
                 }
             }
 
@@ -1081,6 +1083,21 @@ extension Workspace {
         // Shell-escape the command for embedding in a single-quoted heredoc
         let escaped = command.replacingOccurrences(of: "'", with: "'\\''")
         return "while true; do clear; printf '\\e[2m▶ Press Enter to run:\\e[0m \\e[1m\(escaped)\\e[0m\\n'; read; \(escaped); done"
+    }
+
+    /// Wraps a command to log all output to a file using script(1).
+    /// Uses `script -q <file> <shell> -c <command>` for real-time capture.
+    private static func loggedCommandWrapper(_ command: String, logTo: String) -> String {
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let escapedCommand = command.replacingOccurrences(of: "'", with: "'\\''")
+        let escapedLogTo = logTo.replacingOccurrences(of: "'", with: "'\\''")
+        return "script -q '\(escapedLogTo)' \(shell) -c '\(escapedCommand)'"
+    }
+
+    /// Applies log_to wrapping to a command if the surface has a log path.
+    private static func applyLogging(_ command: String, surface: CmuxSurfaceDefinition) -> String {
+        guard let logTo = surface.log_to else { return command }
+        return loggedCommandWrapper(command, logTo: logTo)
     }
 
     private func sendInputWhenReady(_ text: String, to panel: TerminalPanel) {
