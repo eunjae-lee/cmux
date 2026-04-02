@@ -956,11 +956,17 @@ extension Workspace {
             }
 
         case .browser:
-            let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(inPane: paneId, url: url, focus: false) {
+            let targetURL = surface.url.flatMap { URL(string: $0) }
+            let initialURL = surface.wait_for != nil ? nil : targetURL
+            if let panel = newBrowserSurface(inPane: paneId, url: initialURL, focus: false) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
+                if let waitFor = surface.wait_for, let targetURL {
+                    pollWaitFor(command: waitFor, then: { [weak panel] in
+                        panel?.navigate(to: targetURL)
+                    })
+                }
             }
         }
     }
@@ -992,12 +998,59 @@ extension Workspace {
             }
 
         case .browser:
-            let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(inPane: paneId, url: url, focus: false) {
+            let targetURL = surface.url.flatMap { URL(string: $0) }
+            let initialURL = surface.wait_for != nil ? nil : targetURL
+            if let panel = newBrowserSurface(inPane: paneId, url: initialURL, focus: false) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
+                if let waitFor = surface.wait_for, let targetURL {
+                    pollWaitFor(command: waitFor, then: { [weak panel] in
+                        panel?.navigate(to: targetURL)
+                    })
+                }
             }
         }
+    }
+
+    /// Poll a shell command with exponential backoff (1s → 10s cap).
+    /// Calls `onReady` on main thread when the command exits 0.
+    private func pollWaitFor(command: String, then onReady: @escaping () -> Void) {
+        let maxInterval: TimeInterval = 10
+        var interval: TimeInterval = 1
+
+        func poll() {
+            Task.detached {
+                let process = Process()
+                let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+                process.executableURL = URL(fileURLWithPath: shell)
+                process.arguments = ["-c", command]
+                process.standardOutput = FileHandle.nullDevice
+                process.standardError = FileHandle.nullDevice
+
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+
+                    if process.terminationStatus == 0 {
+                        DispatchQueue.main.async { onReady() }
+                    } else {
+                        let nextInterval = min(interval * 2, maxInterval)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + interval) {
+                            interval = nextInterval
+                            poll()
+                        }
+                    }
+                } catch {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + interval) {
+                        interval = min(interval * 2, maxInterval)
+                        poll()
+                    }
+                }
+            }
+        }
+
+        // Start first poll after 1 second
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { poll() }
     }
 
     private func applyCustomDividerPositions(

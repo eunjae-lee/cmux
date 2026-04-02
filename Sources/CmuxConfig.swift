@@ -258,6 +258,9 @@ struct CmuxSurfaceDefinition: Codable, Sendable {
     /// When true and `command` is set, the command is placed in the terminal
     /// as editable text without executing. The user presses Enter to run it.
     var suspended: Bool?
+    /// Shell command that must exit 0 before a browser surface loads its URL.
+    /// Polled with exponential backoff (1s → 10s cap).
+    var wait_for: String?
 }
 
 enum CmuxSurfaceType: String, Codable, Sendable {
