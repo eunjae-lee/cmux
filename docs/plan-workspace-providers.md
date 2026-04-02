@@ -173,6 +173,22 @@ Used for cleanup: removing git worktrees, freeing ports, etc. Failures are logge
 | `url` | string? | URL to load (browser only) |
 | `focus` | bool? | Focus this surface on creation |
 | `suspended` | bool? | Show "Press Enter to run" loop instead of auto-executing |
+| `wait_for` | string? | Shell command that must exit 0 before a browser surface loads its URL. Polled with exponential backoff (1s → 10s cap). |
+
+### wait_for (browser readiness check)
+
+Browser surfaces with `wait_for` start blank and poll a shell command with exponential backoff (1s → 2s → 4s → 8s → 10s cap). The URL loads once the command exits 0.
+
+```json
+{
+  "type": "browser",
+  "name": "Preview",
+  "url": "http://localhost:3000",
+  "wait_for": "curl -sf http://localhost:3000 > /dev/null"
+}
+```
+
+Useful for dev server previews — the browser waits until the server is ready instead of showing an error page.
 
 ### Suspended mode
 
