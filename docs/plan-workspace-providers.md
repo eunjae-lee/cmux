@@ -174,6 +174,7 @@ Used for cleanup: removing git worktrees, freeing ports, etc. Failures are logge
 | `focus` | bool? | Focus this surface on creation |
 | `suspended` | bool? | Show "Press Enter to run" loop instead of auto-executing |
 | `wait_for` | string? | Shell command that must exit 0 before a browser surface loads its URL. Polled with exponential backoff (1s → 10s cap). |
+| `log_to` | string? | File path to log all terminal output to in real time via `script(1)`. |
 
 ### wait_for (browser readiness check)
 
@@ -189,6 +190,38 @@ Browser surfaces with `wait_for` start blank and poll a shell command with expon
 ```
 
 Useful for dev server previews — the browser waits until the server is ready instead of showing an error page.
+
+### log_to (terminal output capture)
+
+Terminal surfaces with `log_to` capture all output to a file in real time using `script(1)`. No buffering issues since it captures directly from the pty.
+
+```json
+{
+  "type": "terminal",
+  "name": "Dev",
+  "command": "bun run dev",
+  "log_to": "/tmp/dev-server.log"
+}
+```
+
+Combines with `wait_for` for powerful patterns — wait for a specific log line before loading a browser:
+
+```json
+{
+  "layout": {
+    "direction": "horizontal",
+    "children": [
+      { "pane": { "surfaces": [
+        { "type": "terminal", "name": "Dev", "command": "bun run dev", "log_to": "/tmp/dev.log" }
+      ]}},
+      { "pane": { "surfaces": [
+        { "type": "browser", "name": "Preview", "url": "http://localhost:3000",
+          "wait_for": "grep -q 'ready' /tmp/dev.log 2>/dev/null" }
+      ]}}
+    ]
+  }
+}
+```
 
 ### Suspended mode
 
