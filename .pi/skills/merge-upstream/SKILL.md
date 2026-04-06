@@ -1,7 +1,7 @@
 ---
 name: merge-upstream
 description: Fetch latest upstream (origin/main) and merge into the fork, then push to eunjae-lee remote
-allowed-tools: Bash(git *), Read, Edit
+allowed-tools: Bash(git *), Bash(rm *), Bash(gh *), Bash(mkdir *), Bash(tar *), Bash(mv *), Bash(ln *), Bash(ls *), Bash(cat *), Bash(cd *), Bash(./scripts/*), Read, Edit
 ---
 
 # Merge Upstream into Fork
@@ -38,20 +38,56 @@ If the merge completes cleanly, go to step 6.
 
 ## 5. Resolve conflicts
 
-If there are conflicts:
+### Submodule conflicts (ghostty, vendor/bonsplit)
+
+These conflict on almost every upstream merge. Resolution:
+
+```bash
+# For each conflicted submodule, take upstream's version:
+UPSTREAM_SHA=$(git ls-tree origin/main <submodule> | awk '{print $3}')
+cd <submodule> && git fetch origin && git checkout $UPSTREAM_SHA && cd ..
+git add <submodule>
+```
+
+### Download updated GhosttyKit xcframework
+
+After updating the ghostty submodule, download the pre-built xcframework (zig can't build on macOS 26):
+
+```bash
+# Clean ghostty submodule first (stale files cause dirty cache key)
+cd ghostty && git clean -fdx && cd ..
+
+GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
+CACHE_DIR="$HOME/.cache/cmux/ghosttykit/$GHOSTTY_SHA"
+if [ ! -d "$CACHE_DIR/GhosttyKit.xcframework" ]; then
+  mkdir -p /tmp/ghosttykit-download "$CACHE_DIR"
+  gh release download "xcframework-$GHOSTTY_SHA" --repo manaflow-ai/ghostty --pattern "GhosttyKit.xcframework.tar.gz" --dir /tmp/ghosttykit-download
+  tar xzf /tmp/ghosttykit-download/GhosttyKit.xcframework.tar.gz -C /tmp/ghosttykit-download
+  mv /tmp/ghosttykit-download/GhosttyKit.xcframework "$CACHE_DIR/"
+  rm -rf /tmp/ghosttykit-download
+fi
+ln -sfn "$CACHE_DIR/GhosttyKit.xcframework" GhosttyKit.xcframework
+```
+
+### Source code conflicts
+
+Our provider code lives in separate files so conflicts are rare. When they occur:
 
 1. Run `git status` to see conflicted files.
-2. For each conflicted file, read it and understand both sides.
-3. **Our provider code lives in separate files** — conflicts are most likely in:
-   - `Sources/ContentView.swift` (sidebar ForEach, context menu)
-   - `Sources/Workspace.swift` (properties, session restore)
-   - `Sources/TabManager.swift` (selectWorkspace, session restore)
-   - `Sources/Update/UpdateTitlebarAccessory.swift` (titlebar controls)
-   - `Sources/cmuxApp.swift` (environment objects)
-   - `Sources/AppDelegate.swift` (shared stores)
-   - `GhosttyTabs.xcodeproj/project.pbxproj` (file references)
-4. Resolve by keeping upstream changes and re-applying our small additions. Refer to `docs/changes-in-fork.md` for what our changes are in each file.
-5. `git add <file>` each resolved file.
+2. For each file, read the conflict markers.
+3. Refer to `docs/changes-in-fork.md` for what our changes are.
+4. **Key principle:** keep upstream changes, re-apply our small additions.
+5. Common conflicts:
+   - `Sources/ContentView.swift` — our changes use `tab.isProviderWorkspace` (a computed property). Just keep upstream's line and append `&& !tab.isProviderWorkspace` where needed.
+   - `Sources/cmuxApp.swift` — our `workspaceProviderStore` is after `primaryWindowId`, away from `@StateObject` block. If upstream adds properties near there, just keep both.
+   - `GhosttyTabs.xcodeproj/project.pbxproj` — keep upstream changes, ensure our file references still exist.
+6. `git add <file>` each resolved file.
+
+### Complete the merge
+
+```bash
+git commit --no-edit
+```
 
 ## 6. Verify build
 
@@ -59,7 +95,10 @@ If there are conflicts:
 ./scripts/dev.sh
 ```
 
-If the build fails, fix compilation errors and amend the merge commit.
+If the build fails:
+- **zig errors:** clean ghostty submodule (`cd ghostty && git clean -fdx`) and re-download xcframework
+- **SPM errors:** `rm -rf /tmp/cmux-release` and retry
+- **Swift compilation errors:** fix and amend the merge commit
 
 ## 7. Push to fork
 
@@ -74,3 +113,4 @@ git push eunjae-lee main
 - Never force-push to either remote without asking
 - If conflicts are complex, show the user and ask before resolving
 - After merging, check `docs/changes-in-fork.md` to ensure our additions are still intact
+- The push triggers the pre-push hook (release build + homebrew tap update)
