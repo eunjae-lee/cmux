@@ -6679,6 +6679,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Tracks which provider created this workspace, for cleanup on close.
     var providerOrigin: WorkspaceProviderOrigin?
 
+    /// Whether this workspace was created by a provider (convenience for UI checks).
+    var isProviderWorkspace: Bool { providerOrigin != nil }
+
     /// When true, the workspace is a placeholder — no terminals running.
     /// Clicking it in the sidebar activates it.
     @Published var isSuspended: Bool = false

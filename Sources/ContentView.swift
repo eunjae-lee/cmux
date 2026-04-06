@@ -9980,7 +9980,7 @@ struct VerticalTabsSidebar: View {
                                         workspaceCount: workspaceCount
                                     ),
                                     workspaceShortcutModifierSymbol: workspaceNumberShortcut.numberedDigitHintPrefix,
-                                    canCloseWorkspace: canCloseWorkspace && tab.providerOrigin == nil,
+                                    canCloseWorkspace: canCloseWorkspace && !tab.isProviderWorkspace,
                                     accessibilityWorkspaceCount: workspaceCount,
                                     unreadCount: notificationStore.unreadCount(forTabId: tab.id),
                                     latestNotificationText: {
@@ -13315,7 +13315,7 @@ private struct TabItemView: View, Equatable {
         .disabled(targetIds.isEmpty)
 
         // Provider workspace actions
-        if tab.providerOrigin != nil {
+        if tab.isProviderWorkspace {
             Divider()
 
             if tab.isSuspended {
@@ -13354,7 +13354,7 @@ private struct TabItemView: View, Equatable {
             }
         }
 
-        if tab.providerOrigin == nil {
+        if !tab.isProviderWorkspace {
             Divider()
 
             if let key = closeWorkspaceShortcut.keyEquivalent {
