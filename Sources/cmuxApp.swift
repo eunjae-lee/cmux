@@ -144,6 +144,7 @@ struct cmuxApp: App {
     private var workspaceProviderStore: WorkspaceProviderStore {
         appDelegate.workspaceProviderStoreForTitlebar
     }
+    @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let primaryWindowId = UUID()
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
@@ -151,30 +152,7 @@ struct cmuxApp: App {
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
-    @AppStorage(KeyboardShortcutSettings.Action.toggleSidebar.defaultsKey) private var toggleSidebarShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.newTab.defaultsKey) private var newWorkspaceShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.newWindow.defaultsKey) private var newWindowShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.showNotifications.defaultsKey) private var showNotificationsShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.jumpToUnread.defaultsKey) private var jumpToUnreadShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.nextSurface.defaultsKey) private var nextSurfaceShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.prevSurface.defaultsKey) private var prevSurfaceShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.nextSidebarTab.defaultsKey) private var nextWorkspaceShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.prevSidebarTab.defaultsKey) private var prevWorkspaceShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultsKey) private var selectWorkspaceByNumberShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.splitRight.defaultsKey) private var splitRightShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.splitDown.defaultsKey) private var splitDownShortcutData = Data()
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
-    @AppStorage(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultsKey)
-    private var toggleBrowserDeveloperToolsShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultsKey)
-    private var showBrowserJavaScriptConsoleShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.toggleReactGrab.defaultsKey)
-    private var toggleReactGrabShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     private var browserToolbarAccessorySpacing: Int {
@@ -189,6 +167,7 @@ struct cmuxApp: App {
         }
 
         Self.configureGhosttyEnvironment()
+        _ = KeyboardShortcutSettings.settingsFileStore
 
         // Apply saved language preference before any UI loads
         LanguageSettings.apply(LanguageSettings.languageAtLaunch)
@@ -254,11 +233,15 @@ struct cmuxApp: App {
         }
 
         if getenv("TERM") == nil {
-            setenv("TERM", "xterm-ghostty", 1)
+            setenv("TERM", TerminalSurface.managedTerminalType, 1)
+        }
+
+        if getenv("COLORTERM") == nil {
+            setenv("COLORTERM", TerminalSurface.managedColorTerm, 1)
         }
 
         if getenv("TERM_PROGRAM") == nil {
-            setenv("TERM_PROGRAM", "ghostty", 1)
+            setenv("TERM_PROGRAM", TerminalSurface.managedTerminalProgram, 1)
         }
 
         if let resourcesDir = getenv("GHOSTTY_RESOURCES_DIR").flatMap({ String(cString: $0) }) {
@@ -377,28 +360,34 @@ struct cmuxApp: App {
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .appSettings) {
-                Button(String(localized: "menu.app.settings", defaultValue: "Settings…")) {
+                splitCommandButton(title: String(localized: "menu.app.settings", defaultValue: "Settings…"), shortcut: menuShortcut(for: .openSettings)) {
                     appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
                 }
-                .keyboardShortcut(",", modifiers: .command)
+                Button(String(localized: "menu.app.openCmuxSettingsFile", defaultValue: "Open settings.json")) {
+                    openCmuxSettingsFileInEditor()
+                }
+                Button(String(localized: "menu.app.ghosttySettings", defaultValue: "Ghostty Settings…")) {
+                    GhosttyApp.shared.openConfigurationInTextEdit()
+                }
+                splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"), shortcut: menuShortcut(for: .reloadConfiguration)) {
+                    GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
+                }
             }
 
             CommandGroup(replacing: .appInfo) {
                 Button(String(localized: "menu.app.about", defaultValue: "About cmux")) {
                     showAboutPanel()
                 }
-                Button(String(localized: "menu.app.ghosttySettings", defaultValue: "Ghostty Settings…")) {
-                    GhosttyApp.shared.openConfigurationInTextEdit()
-                }
-                Button(String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration")) {
-                    GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
-                }
-                .keyboardShortcut(",", modifiers: [.command, .shift])
-                Divider()
                 Button(String(localized: "menu.app.checkForUpdates", defaultValue: "Check for Updates…")) {
                     appDelegate.checkForUpdates(nil)
                 }
                 InstallUpdateMenuItem(model: appDelegate.updateViewModel)
+            }
+
+            CommandGroup(replacing: .appTermination) {
+                splitCommandButton(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), shortcut: menuShortcut(for: .quit)) {
+                    NSApp.terminate(nil)
+                }
             }
 
 #if DEBUG
@@ -439,11 +428,11 @@ struct cmuxApp: App {
                     Divider()
                 }
 
-                splitCommandButton(title: String(localized: "menu.notifications.show", defaultValue: "Show Notifications"), shortcut: showNotificationsMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.notifications.show", defaultValue: "Show Notifications"), shortcut: menuShortcut(for: .showNotifications)) {
                     showNotificationsPopover()
                 }
 
-                splitCommandButton(title: String(localized: "menu.notifications.jumpToUnread", defaultValue: "Jump to Latest Unread"), shortcut: jumpToUnreadMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.notifications.jumpToUnread", defaultValue: "Jump to Latest Unread"), shortcut: menuShortcut(for: .jumpToUnread)) {
                     appDelegate.jumpToLatestUnread()
                 }
                 .disabled(!snapshot.hasUnreadNotifications)
@@ -574,11 +563,11 @@ struct cmuxApp: App {
 
             // New tab commands
             CommandGroup(replacing: .newItem) {
-                splitCommandButton(title: String(localized: "menu.file.newWindow", defaultValue: "New Window"), shortcut: newWindowMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.file.newWindow", defaultValue: "New Window"), shortcut: menuShortcut(for: .newWindow)) {
                     appDelegate.openNewMainWindow(nil)
                 }
 
-                splitCommandButton(title: String(localized: "menu.file.newWorkspace", defaultValue: "New Workspace"), shortcut: newWorkspaceMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.file.newWorkspace", defaultValue: "New Workspace"), shortcut: menuShortcut(for: .newTab)) {
                     if let appDelegate = AppDelegate.shared {
                         if appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "menu.newWorkspace") == nil {
 #if DEBUG
@@ -593,7 +582,7 @@ struct cmuxApp: App {
                     }
                 }
 
-                splitCommandButton(title: String(localized: "menu.file.openFolder", defaultValue: "Open Folder…"), shortcut: openFolderMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.file.openFolder", defaultValue: "Open Folder…"), shortcut: menuShortcut(for: .openFolder)) {
                     AppDelegate.shared?.showOpenFolderPanel()
                 }
 
@@ -610,17 +599,15 @@ struct cmuxApp: App {
 
             // Close tab/workspace
             CommandGroup(after: .newItem) {
-                Button(String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")) {
+                splitCommandButton(title: String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…"), shortcut: menuShortcut(for: .goToWorkspace)) {
                     let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
                     NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
                 }
-                .keyboardShortcut("p", modifiers: [.command])
 
-                Button(String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")) {
+                splitCommandButton(title: String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…"), shortcut: menuShortcut(for: .commandPalette)) {
                     let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
                     NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)
                 }
-                .keyboardShortcut("p", modifiers: [.command, .shift])
 
                 Divider()
 
@@ -629,20 +616,18 @@ struct cmuxApp: App {
                 // default, closing the last surface also closes the workspace and the window
                 // if it was also the last workspace. Users can opt into keeping the workspace
                 // open instead.
-                Button(String(localized: "menu.file.closeTab", defaultValue: "Close Tab")) {
+                splitCommandButton(title: String(localized: "menu.file.closeTab", defaultValue: "Close Tab"), shortcut: menuShortcut(for: .closeTab)) {
                     closePanelOrWindow()
                 }
-                .keyboardShortcut("w", modifiers: .command)
 
-                Button(String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane")) {
+                splitCommandButton(title: String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane"), shortcut: menuShortcut(for: .closeOtherTabsInPane)) {
                     closeOtherTabsInFocusedPane()
                 }
-                .keyboardShortcut("t", modifiers: [.command, .option])
                 .disabled(!activeTabManager.canCloseOtherTabsInFocusedPane())
 
                 // Cmd+Shift+W closes the current workspace (with confirmation if needed). If this
                 // is the last workspace, it closes the window.
-                splitCommandButton(title: String(localized: "menu.file.closeWorkspace", defaultValue: "Close Workspace"), shortcut: closeWorkspaceMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.file.closeWorkspace", defaultValue: "Close Workspace"), shortcut: menuShortcut(for: .closeWorkspace)) {
                     closeTabOrWindow()
                 }
 
@@ -650,54 +635,48 @@ struct cmuxApp: App {
                     workspaceCommandMenuContent(manager: activeTabManager)
                 }
 
-                Button(String(localized: "menu.file.reopenClosedBrowserPanel", defaultValue: "Reopen Closed Browser Panel")) {
+                splitCommandButton(title: String(localized: "menu.file.reopenClosedBrowserPanel", defaultValue: "Reopen Closed Browser Panel"), shortcut: menuShortcut(for: .reopenClosedBrowserPanel)) {
                     _ = activeTabManager.reopenMostRecentlyClosedBrowserPanel()
                 }
-                .keyboardShortcut("t", modifiers: [.command, .shift])
             }
 
             // Find
             CommandGroup(after: .textEditing) {
                 Menu(String(localized: "menu.find.title", defaultValue: "Find")) {
-                    Button(String(localized: "menu.find.find", defaultValue: "Find…")) {
+                    splitCommandButton(title: String(localized: "menu.find.find", defaultValue: "Find…"), shortcut: menuShortcut(for: .find)) {
 #if DEBUG
                         dlog("find.menu Cmd+F fired")
 #endif
                         activeTabManager.startSearch()
                     }
-                    .keyboardShortcut("f", modifiers: .command)
 
-                    Button(String(localized: "menu.find.findNext", defaultValue: "Find Next")) {
+                    splitCommandButton(title: String(localized: "menu.find.findNext", defaultValue: "Find Next"), shortcut: menuShortcut(for: .findNext)) {
                         activeTabManager.findNext()
                     }
-                    .keyboardShortcut("g", modifiers: .command)
 
-                    Button(String(localized: "menu.find.findPrevious", defaultValue: "Find Previous")) {
+                    splitCommandButton(title: String(localized: "menu.find.findPrevious", defaultValue: "Find Previous"), shortcut: menuShortcut(for: .findPrevious)) {
                         activeTabManager.findPrevious()
                     }
-                    .keyboardShortcut("g", modifiers: [.command, .shift])
 
                     Divider()
 
-                    Button(String(localized: "menu.find.hideFindBar", defaultValue: "Hide Find Bar")) {
+                    splitCommandButton(title: String(localized: "menu.find.hideFindBar", defaultValue: "Hide Find Bar"), shortcut: menuShortcut(for: .hideFind)) {
                         activeTabManager.hideFind()
                     }
-                    .keyboardShortcut("f", modifiers: [.command, .shift])
                     .disabled(!(activeTabManager.isFindVisible))
 
                     Divider()
 
-                    Button(String(localized: "menu.find.useSelectionForFind", defaultValue: "Use Selection for Find")) {
+                    splitCommandButton(title: String(localized: "menu.find.useSelectionForFind", defaultValue: "Use Selection for Find"), shortcut: menuShortcut(for: .useSelectionForFind)) {
                         activeTabManager.searchSelection()
                     }
-                    .keyboardShortcut("e", modifiers: .command)
                     .disabled(!(activeTabManager.canUseSelectionForFind))
                 }
             }
 
             // Tab navigation
             CommandGroup(after: .toolbar) {
-                splitCommandButton(title: String(localized: "menu.view.toggleSidebar", defaultValue: "Toggle Sidebar"), shortcut: toggleSidebarMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.view.toggleSidebar", defaultValue: "Toggle Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
                     if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
                         sidebarState.toggle()
                     }
@@ -705,61 +684,57 @@ struct cmuxApp: App {
 
                 Divider()
 
-                splitCommandButton(title: String(localized: "menu.view.nextSurface", defaultValue: "Next Surface"), shortcut: nextSurfaceMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.view.nextSurface", defaultValue: "Next Surface"), shortcut: menuShortcut(for: .nextSurface)) {
                     activeTabManager.selectNextSurface()
                 }
 
-                splitCommandButton(title: String(localized: "menu.view.previousSurface", defaultValue: "Previous Surface"), shortcut: prevSurfaceMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.view.previousSurface", defaultValue: "Previous Surface"), shortcut: menuShortcut(for: .prevSurface)) {
                     activeTabManager.selectPreviousSurface()
                 }
 
-                Button(String(localized: "menu.view.back", defaultValue: "Back")) {
+                splitCommandButton(title: String(localized: "menu.view.back", defaultValue: "Back"), shortcut: menuShortcut(for: .browserBack)) {
                     activeTabManager.focusedBrowserPanel?.goBack()
                 }
-                .keyboardShortcut("[", modifiers: .command)
 
-                Button(String(localized: "menu.view.forward", defaultValue: "Forward")) {
+                splitCommandButton(title: String(localized: "menu.view.forward", defaultValue: "Forward"), shortcut: menuShortcut(for: .browserForward)) {
                     activeTabManager.focusedBrowserPanel?.goForward()
                 }
-                .keyboardShortcut("]", modifiers: .command)
 
-                Button(String(localized: "menu.view.reloadPage", defaultValue: "Reload Page")) {
+                splitCommandButton(title: String(localized: "menu.view.reloadPage", defaultValue: "Reload Page"), shortcut: menuShortcut(for: .browserReload)) {
                     activeTabManager.focusedBrowserPanel?.reload()
                 }
-                .keyboardShortcut("r", modifiers: .command)
 
-                splitCommandButton(title: String(localized: "menu.view.toggleDevTools", defaultValue: "Toggle Developer Tools"), shortcut: toggleBrowserDeveloperToolsMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.view.toggleDevTools", defaultValue: "Toggle Developer Tools"), shortcut: menuShortcut(for: .toggleBrowserDeveloperTools)) {
                     let manager = activeTabManager
                     if !manager.toggleDeveloperToolsFocusedBrowser() {
                         NSSound.beep()
                     }
                 }
 
-                splitCommandButton(title: String(localized: "menu.view.showJSConsole", defaultValue: "Show JavaScript Console"), shortcut: showBrowserJavaScriptConsoleMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.view.showJSConsole", defaultValue: "Show JavaScript Console"), shortcut: menuShortcut(for: .showBrowserJavaScriptConsole)) {
                     let manager = activeTabManager
                     if !manager.showJavaScriptConsoleFocusedBrowser() {
                         NSSound.beep()
                     }
                 }
 
-                splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: toggleReactGrabMenuShortcut) {
-                    activeTabManager.toggleReactGrabFocusedBrowser()
+                splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: menuShortcut(for: .toggleReactGrab)) {
+                    if !activeTabManager.toggleReactGrabFromCurrentFocus() {
+                        NSSound.beep()
+                    }
                 }
 
-                Button(String(localized: "menu.view.zoomIn", defaultValue: "Zoom In")) {
+                splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
                     _ = activeTabManager.zoomInFocusedBrowser()
                 }
-                .keyboardShortcut("=", modifiers: .command)
 
-                Button(String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out")) {
+                splitCommandButton(title: String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out"), shortcut: menuShortcut(for: .browserZoomOut)) {
                     _ = activeTabManager.zoomOutFocusedBrowser()
                 }
-                .keyboardShortcut("-", modifiers: .command)
 
-                Button(String(localized: "menu.view.actualSize", defaultValue: "Actual Size")) {
+                splitCommandButton(title: String(localized: "menu.view.actualSize", defaultValue: "Actual Size"), shortcut: menuShortcut(for: .browserZoomReset)) {
                     _ = activeTabManager.resetZoomFocusedBrowser()
                 }
-                .keyboardShortcut("0", modifiers: .command)
 
                 Button(String(localized: "menu.view.clearBrowserHistory", defaultValue: "Clear Browser History")) {
                     BrowserHistoryStore.shared.clearHistory()
@@ -772,33 +747,42 @@ struct cmuxApp: App {
                     }
                 }
 
-                splitCommandButton(title: String(localized: "menu.view.nextWorkspace", defaultValue: "Next Workspace"), shortcut: nextWorkspaceMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.view.nextWorkspace", defaultValue: "Next Workspace"), shortcut: menuShortcut(for: .nextSidebarTab)) {
                     activeTabManager.selectNextTab()
                 }
 
-                splitCommandButton(title: String(localized: "menu.view.previousWorkspace", defaultValue: "Previous Workspace"), shortcut: prevWorkspaceMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.view.previousWorkspace", defaultValue: "Previous Workspace"), shortcut: menuShortcut(for: .prevSidebarTab)) {
                     activeTabManager.selectPreviousTab()
                 }
 
-                splitCommandButton(title: String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…"), shortcut: renameWorkspaceMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…"), shortcut: menuShortcut(for: .renameWorkspace)) {
                     _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
+                }
+
+                splitCommandButton(title: String(localized: "menu.view.editWorkspaceDescription", defaultValue: "Edit Workspace Description…"), shortcut: menuShortcut(for: .editWorkspaceDescription)) {
+                    _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
+                }
+
+                splitCommandButton(title: String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen"), shortcut: menuShortcut(for: .toggleFullScreen)) {
+                    guard let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+                    targetWindow.toggleFullScreen(nil)
                 }
 
                 Divider()
 
-                splitCommandButton(title: String(localized: "menu.view.splitRight", defaultValue: "Split Right"), shortcut: splitRightMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.view.splitRight", defaultValue: "Split Right"), shortcut: menuShortcut(for: .splitRight)) {
                     performSplitFromMenu(direction: .right)
                 }
 
-                splitCommandButton(title: String(localized: "menu.view.splitDown", defaultValue: "Split Down"), shortcut: splitDownMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.view.splitDown", defaultValue: "Split Down"), shortcut: menuShortcut(for: .splitDown)) {
                     performSplitFromMenu(direction: .down)
                 }
 
-                splitCommandButton(title: String(localized: "menu.view.splitBrowserRight", defaultValue: "Split Browser Right"), shortcut: splitBrowserRightMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.view.splitBrowserRight", defaultValue: "Split Browser Right"), shortcut: menuShortcut(for: .splitBrowserRight)) {
                     performBrowserSplitFromMenu(direction: .right)
                 }
 
-                splitCommandButton(title: String(localized: "menu.view.splitBrowserDown", defaultValue: "Split Browser Down"), shortcut: splitBrowserDownMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.view.splitBrowserDown", defaultValue: "Split Browser Down"), shortcut: menuShortcut(for: .splitBrowserDown)) {
                     performBrowserSplitFromMenu(direction: .down)
                 }
 
@@ -806,25 +790,35 @@ struct cmuxApp: App {
 
                 // Numbered workspace selection (9 = last workspace)
                 ForEach(1...9, id: \.self) { number in
-                    Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
-                        let manager = activeTabManager
-                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                            manager.selectTab(at: targetIndex)
+                    let selectWorkspaceByNumberShortcut = menuShortcut(for: .selectWorkspaceByNumber)
+                    if selectWorkspaceByNumberShortcut.hasChord {
+                        Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
+                            let manager = activeTabManager
+                            if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
+                                manager.selectTab(at: targetIndex)
+                            }
                         }
+                    } else {
+                        Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
+                            let manager = activeTabManager
+                            if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
+                                manager.selectTab(at: targetIndex)
+                            }
+                        }
+                        .keyboardShortcut(
+                            KeyEquivalent(Character("\(number)")),
+                            modifiers: selectWorkspaceByNumberShortcut.eventModifiers
+                        )
                     }
-                    .keyboardShortcut(
-                        KeyEquivalent(Character("\(number)")),
-                        modifiers: selectWorkspaceByNumberMenuShortcut.eventModifiers
-                    )
                 }
 
                 Divider()
 
-                splitCommandButton(title: String(localized: "menu.view.jumpToUnread", defaultValue: "Jump to Latest Unread"), shortcut: jumpToUnreadMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.view.jumpToUnread", defaultValue: "Jump to Latest Unread"), shortcut: menuShortcut(for: .jumpToUnread)) {
                     AppDelegate.shared?.jumpToLatestUnread()
                 }
 
-                splitCommandButton(title: String(localized: "menu.view.showNotifications", defaultValue: "Show Notifications"), shortcut: showNotificationsMenuShortcut) {
+                splitCommandButton(title: String(localized: "menu.view.showNotifications", defaultValue: "Show Notifications"), shortcut: menuShortcut(for: .showNotifications)) {
                     showNotificationsPopover()
                 }
             }
@@ -873,120 +867,9 @@ struct cmuxApp: App {
         SocketControlSettings.migrateMode(socketControlMode)
     }
 
-    private var splitRightMenuShortcut: StoredShortcut {
-        decodeShortcut(from: splitRightShortcutData, fallback: KeyboardShortcutSettings.Action.splitRight.defaultShortcut)
-    }
-
-    private var toggleSidebarMenuShortcut: StoredShortcut {
-        decodeShortcut(from: toggleSidebarShortcutData, fallback: KeyboardShortcutSettings.Action.toggleSidebar.defaultShortcut)
-    }
-
-    private var newWorkspaceMenuShortcut: StoredShortcut {
-        decodeShortcut(from: newWorkspaceShortcutData, fallback: KeyboardShortcutSettings.Action.newTab.defaultShortcut)
-    }
-
-    private var newWindowMenuShortcut: StoredShortcut {
-        decodeShortcut(from: newWindowShortcutData, fallback: KeyboardShortcutSettings.Action.newWindow.defaultShortcut)
-    }
-
-    private var openFolderMenuShortcut: StoredShortcut {
-        decodeShortcut(from: openFolderShortcutData, fallback: KeyboardShortcutSettings.Action.openFolder.defaultShortcut)
-    }
-
-    private var showNotificationsMenuShortcut: StoredShortcut {
-        decodeShortcut(
-            from: showNotificationsShortcutData,
-            fallback: KeyboardShortcutSettings.Action.showNotifications.defaultShortcut
-        )
-    }
-
-    private var jumpToUnreadMenuShortcut: StoredShortcut {
-        decodeShortcut(
-            from: jumpToUnreadShortcutData,
-            fallback: KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
-        )
-    }
-
-    private var nextSurfaceMenuShortcut: StoredShortcut {
-        decodeShortcut(from: nextSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.nextSurface.defaultShortcut)
-    }
-
-    private var prevSurfaceMenuShortcut: StoredShortcut {
-        decodeShortcut(from: prevSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.prevSurface.defaultShortcut)
-    }
-
-    private var nextWorkspaceMenuShortcut: StoredShortcut {
-        decodeShortcut(
-            from: nextWorkspaceShortcutData,
-            fallback: KeyboardShortcutSettings.Action.nextSidebarTab.defaultShortcut
-        )
-    }
-
-    private var prevWorkspaceMenuShortcut: StoredShortcut {
-        decodeShortcut(
-            from: prevWorkspaceShortcutData,
-            fallback: KeyboardShortcutSettings.Action.prevSidebarTab.defaultShortcut
-        )
-    }
-
-    private var selectWorkspaceByNumberMenuShortcut: StoredShortcut {
-        decodeShortcut(
-            from: selectWorkspaceByNumberShortcutData,
-            fallback: KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultShortcut
-        )
-    }
-
-    private var splitDownMenuShortcut: StoredShortcut {
-        decodeShortcut(from: splitDownShortcutData, fallback: KeyboardShortcutSettings.Action.splitDown.defaultShortcut)
-    }
-
-    private var toggleBrowserDeveloperToolsMenuShortcut: StoredShortcut {
-        decodeShortcut(
-            from: toggleBrowserDeveloperToolsShortcutData,
-            fallback: KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
-        )
-    }
-
-    private var showBrowserJavaScriptConsoleMenuShortcut: StoredShortcut {
-        decodeShortcut(
-            from: showBrowserJavaScriptConsoleShortcutData,
-            fallback: KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultShortcut
-        )
-    }
-
-    private var toggleReactGrabMenuShortcut: StoredShortcut {
-        decodeShortcut(
-            from: toggleReactGrabShortcutData,
-            fallback: KeyboardShortcutSettings.Action.toggleReactGrab.defaultShortcut
-        )
-    }
-
-    private var splitBrowserRightMenuShortcut: StoredShortcut {
-        decodeShortcut(
-            from: splitBrowserRightShortcutData,
-            fallback: KeyboardShortcutSettings.Action.splitBrowserRight.defaultShortcut
-        )
-    }
-
-    private var splitBrowserDownMenuShortcut: StoredShortcut {
-        decodeShortcut(
-            from: splitBrowserDownShortcutData,
-            fallback: KeyboardShortcutSettings.Action.splitBrowserDown.defaultShortcut
-        )
-    }
-
-    private var renameWorkspaceMenuShortcut: StoredShortcut {
-        decodeShortcut(
-            from: renameWorkspaceShortcutData,
-            fallback: KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
-        )
-    }
-
-    private var closeWorkspaceMenuShortcut: StoredShortcut {
-        decodeShortcut(
-            from: closeWorkspaceShortcutData,
-            fallback: KeyboardShortcutSettings.Action.closeWorkspace.defaultShortcut
-        )
+    private func menuShortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
+        let _ = keyboardShortcutSettingsObserver.revision
+        return KeyboardShortcutSettings.shortcut(for: action)
     }
 
     private var notificationMenuSnapshot: NotificationMenuSnapshot {
@@ -997,14 +880,6 @@ struct cmuxApp: App {
         AppDelegate.shared?.synchronizeActiveMainWindowContext(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         ) ?? tabManager
-    }
-
-    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
-        guard !data.isEmpty,
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return fallback
-        }
-        return shortcut
     }
 
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
@@ -1143,6 +1018,11 @@ struct cmuxApp: App {
 
         Button(String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…")) {
             _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
+        }
+        .disabled(workspace == nil)
+
+        Button(String(localized: "menu.view.editWorkspaceDescription", defaultValue: "Edit Workspace Description…")) {
+            _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
         }
         .disabled(workspace == nil)
 
@@ -3978,6 +3858,13 @@ enum PreferredEditorSettings {
 
     /// Open a file path with the user's preferred editor, falling back to system default.
     static func open(_ url: URL) {
+        if CmuxUITestCapture.appendLineIfConfigured(
+            envKey: "CMUX_UI_TEST_CAPTURE_OPEN_PATH",
+            line: url.path
+        ) {
+            return
+        }
+
         guard let command = resolvedCommand() else {
             NSWorkspace.shared.open(url)
             return
@@ -4008,10 +3895,172 @@ enum PreferredEditorSettings {
     }
 }
 
+enum CmuxUITestCapture {
+    static func appendLineIfConfigured(envKey: String, line: String) -> Bool {
+        guard let url = configuredURL(for: envKey) else { return false }
+        appendLine(line, to: url)
+        return true
+    }
+
+    static func mutateJSONObjectIfConfigured(
+        envKey: String,
+        _ update: (inout [String: Any]) -> Void
+    ) -> Bool {
+        guard let url = configuredURL(for: envKey) else { return false }
+        mutateJSONObject(at: url, update)
+        return true
+    }
+
+    private static func configuredURL(for envKey: String) -> URL? {
+        let env = ProcessInfo.processInfo.environment
+        guard let rawPath = env[envKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawPath.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: rawPath)
+    }
+
+    private static func appendLine(_ line: String, to url: URL) {
+        ensureParentDirectory(for: url)
+        let payload = (line + "\n").data(using: .utf8) ?? Data()
+
+        if FileManager.default.fileExists(atPath: url.path) {
+            do {
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: payload)
+            } catch {
+                if let existing = try? Data(contentsOf: url) {
+                    var combined = existing
+                    combined.append(payload)
+                    try? combined.write(to: url, options: .atomic)
+                } else {
+                    try? payload.write(to: url, options: .atomic)
+                }
+            }
+            return
+        }
+
+        try? payload.write(to: url, options: .atomic)
+    }
+
+    private static func mutateJSONObject(
+        at url: URL,
+        _ update: (inout [String: Any]) -> Void
+    ) {
+        ensureParentDirectory(for: url)
+        var payload: [String: Any] = [:]
+        if let data = try? Data(contentsOf: url),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            payload = object
+        }
+        update(&payload)
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
+            return
+        }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private static func ensureParentDirectory(for url: URL) {
+        let directory = url.deletingLastPathComponent()
+        guard !directory.path.isEmpty else { return }
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+}
+
+enum CmuxRuntimeDebugCapture {
+    private struct Configuration {
+        let baseURL: URL
+        let token: String
+        let sessionID: String
+    }
+
+    private static let configuration: Configuration? = {
+        let env = ProcessInfo.processInfo.environment
+        guard let baseURLString = env["CMUX_RUNTIME_DEBUG_BASE_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let baseURL = URL(string: baseURLString),
+              let token = env["CMUX_RUNTIME_DEBUG_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !token.isEmpty,
+              let sessionID = env["CMUX_RUNTIME_DEBUG_SESSION_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            return nil
+        }
+        return Configuration(baseURL: baseURL, token: token, sessionID: sessionID)
+    }()
+
+    private static let lock = NSLock()
+    private static var sequence: Int = 0
+
+    static func logIfConfigured(
+        hypothesisID: String,
+        source: String,
+        name: String,
+        expected: String? = nil,
+        actual: String? = nil,
+        data: [String: Any] = [:]
+    ) {
+        guard let configuration else { return }
+
+        var payload: [String: Any] = [
+            "session_id": configuration.sessionID,
+            "hypothesis_id": hypothesisID,
+            "service": "cmux-macos",
+            "source": source,
+            "name": name,
+            "ts": ISO8601DateFormatter().string(from: Date()),
+            "mono_ms": ProcessInfo.processInfo.systemUptime * 1000,
+            "seq": nextSequence(),
+            "data": data
+        ]
+        if let expected {
+            payload["expected"] = expected
+        }
+        if let actual {
+            payload["actual"] = actual
+        }
+
+        guard JSONSerialization.isValidJSONObject(payload),
+              let requestBody = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
+            return
+        }
+
+        var request = URLRequest(url: configuration.baseURL.appendingPathComponent("api/logs"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(configuration.token, forHTTPHeaderField: "X-Debug-Token")
+        request.httpBody = requestBody
+
+        URLSession.shared.dataTask(with: request).resume()
+    }
+
+    private static func nextSequence() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        sequence += 1
+        return sequence
+    }
+}
+
+private func openCmuxSettingsFileInEditor() {
+    let url = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
+    PreferredEditorSettings.open(url)
+}
+
+private func openCmuxSettingsFileInTextEdit() {
+    #if os(macOS)
+    let fileURL = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
+    let editorURL = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
+    let configuration = NSWorkspace.OpenConfiguration()
+    NSWorkspace.shared.open([fileURL], withApplicationAt: editorURL, configuration: configuration)
+    #endif
+}
+
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
+    private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -4092,6 +4141,7 @@ struct SettingsView: View {
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
+    @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
@@ -4112,8 +4162,7 @@ struct SettingsView: View {
     @State private var telemetryValueAtLaunch = TelemetrySettings.enabledForCurrentLaunch
     @State private var showLanguageRestartAlert = false
     @State private var isResettingSettings = false
-    @State private var workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
-    @State private var workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
+    @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
     @State private var trustedDirectoriesDraft: String = CmuxDirectoryTrust.shared.allTrustedPaths.joined(separator: "\n")
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
@@ -4586,6 +4635,7 @@ struct SettingsView: View {
     }
 
     var body: some View {
+        let _ = keyboardShortcutSettingsObserver.revision
         ScrollViewReader { proxy in
             ZStack(alignment: .top) {
             ScrollView {
@@ -5156,71 +5206,68 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardNote(String(localized: "settings.workspaceColors.paletteNote", defaultValue: "Customize the workspace color palette used by Sidebar > Workspace Color. \"Choose Custom Color...\" entries are persisted below."))
+                        SettingsCardNote(
+                            String(
+                                localized: "settings.workspaceColors.dictionaryNote",
+                                defaultValue: "Edit settings.json to add or remove named colors. \"Choose Custom Color...\" still adds local Custom N entries."
+                            )
+                        )
 
-                        ForEach(Array(workspaceTabDefaultEntries.enumerated()), id: \.element.name) { index, entry in
-                            if index > 0 {
-                                SettingsCardDivider()
-                            }
-                            SettingsCardRow(
-                                entry.name,
-                                subtitle: String(localized: "settings.workspaceColors.base", defaultValue: "Base: \(baseTabColorHex(for: entry.name))")
-                            ) {
-                                HStack(spacing: 8) {
-                                    ColorPicker(
-                                        "",
-                                        selection: defaultTabColorBinding(for: entry.name),
-                                        supportsOpacity: false
-                                    )
-                                    .labelsHidden()
-                                    .frame(width: 38)
-
-                                    Text(entry.hex)
-                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                        .frame(width: 76, alignment: .trailing)
-                                }
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        if workspaceTabCustomColors.isEmpty {
-                            SettingsCardNote(String(localized: "settings.workspaceColors.noCustomColors", defaultValue: "Custom colors: none yet. Use \"Choose Custom Color...\" from a workspace context menu."))
+                        if workspaceTabPaletteEntries.isEmpty {
+                            SettingsCardNote(
+                                String(
+                                    localized: "settings.workspaceColors.emptyPalette",
+                                    defaultValue: "No palette entries. Add colors in settings.json or use \"Choose Custom Color...\" from a workspace context menu."
+                                )
+                            )
                         } else {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(String(localized: "settings.workspaceColors.customColors", defaultValue: "Custom Colors"))
-                                    .font(.system(size: 13, weight: .semibold))
-
-                                ForEach(workspaceTabCustomColors, id: \.self) { hex in
+                            ForEach(Array(workspaceTabPaletteEntries.enumerated()), id: \.element.name) { index, entry in
+                                if index > 0 {
+                                    SettingsCardDivider()
+                                }
+                                SettingsCardRow(
+                                    entry.name,
+                                    subtitle: baseTabColorHex(for: entry.name).map {
+                                        String(localized: "settings.workspaceColors.base", defaultValue: "Base: \($0)")
+                                    } ?? String(
+                                        localized: "settings.workspaceColors.customEntry",
+                                        defaultValue: "Named palette entry."
+                                    )
+                                ) {
                                     HStack(spacing: 8) {
-                                        Circle()
-                                            .fill(Color(nsColor: NSColor(hex: hex) ?? .gray))
-                                            .frame(width: 11, height: 11)
+                                        ColorPicker(
+                                            "",
+                                            selection: tabColorBinding(for: entry.name),
+                                            supportsOpacity: false
+                                        )
+                                        .labelsHidden()
+                                        .frame(width: 38)
 
-                                        Text(hex)
+                                        Text(entry.hex)
                                             .font(.system(size: 12, weight: .medium, design: .monospaced))
                                             .foregroundStyle(.secondary)
+                                            .frame(width: 76, alignment: .trailing)
 
-                                        Spacer(minLength: 8)
-
-                                        Button(String(localized: "settings.workspaceColors.remove", defaultValue: "Remove")) {
-                                            removeWorkspaceCustomColor(hex)
+                                        if baseTabColorHex(for: entry.name) == nil {
+                                            Button(String(localized: "settings.workspaceColors.remove", defaultValue: "Remove")) {
+                                                removeWorkspaceColor(named: entry.name)
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .controlSize(.small)
                                         }
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
                                     }
                                 }
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
                         }
 
                         SettingsCardDivider()
 
                         SettingsCardRow(
                             String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"),
-                            subtitle: String(localized: "settings.workspaceColors.resetPalette.subtitle", defaultValue: "Restore built-in defaults and clear all custom colors.")
+                            subtitle: String(
+                                localized: "settings.workspaceColors.resetPalette.subtitleV2",
+                                defaultValue: "Restore the built-in palette and remove extra named colors."
+                            )
                         ) {
                             Button(String(localized: "settings.workspaceColors.resetPalette.button", defaultValue: "Reset")) {
                                 resetWorkspaceTabColors()
@@ -5741,6 +5788,26 @@ struct SettingsView: View {
                         .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
                     SettingsCard {
                         SettingsCardRow(
+                            String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"),
+                            subtitle: String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Add tmux-style multi-step shortcuts in settings.json, for example [\"ctrl+b\", \"c\"].")
+                        ) {
+                            HStack(spacing: 8) {
+                                Link(String(localized: "settings.shortcuts.chords.docsButton", defaultValue: "Chord docs"), destination: shortcutChordsDocsURL)
+                                    .font(.caption)
+                                    .accessibilityIdentifier("SettingsKeyboardShortcutsChordDocsLink")
+
+                                Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
+                                    openCmuxSettingsFileInTextEdit()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsKeyboardShortcutsOpenSettingsFileButton")
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"),
                             subtitle: showShortcutHintsOnCommandHold
                                 ? String(localized: "settings.shortcuts.showHints.subtitleOn", defaultValue: "Holding Cmd (sidebar/titlebar) or Ctrl/Cmd (pane tabs) shows shortcut hint pills.")
@@ -5845,8 +5912,17 @@ struct SettingsView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.primary.opacity(0.92))
                     Spacer(minLength: 0)
+                    HStack(spacing: 6) {
+                        SettingsHeaderActionButton(
+                            title: String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json"),
+                            helpText: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath(),
+                            accessibilityIdentifier: "SettingsFileOpenButton",
+                            action: openCmuxSettingsFileInTextEdit
+                        )
+                    }
                 }
                 .padding(.leading, settingsTitleLeadingInset)
+                .padding(.trailing, 20)
                 .padding(.top, 12)
             }
                 .frame(height: 62)
@@ -5858,7 +5934,6 @@ struct SettingsView: View {
                         .frame(height: 1),
                     alignment: .bottom
                 )
-                .allowsHitTesting(false)
         }
         .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
         .toggleStyle(.switch)
@@ -6051,28 +6126,28 @@ struct SettingsView: View {
         DispatchQueue.main.async { isResettingSettings = false }
     }
 
-    private func defaultTabColorBinding(for name: String) -> Binding<Color> {
+    private func tabColorBinding(for name: String) -> Binding<Color> {
         Binding(
             get: {
-                let hex = WorkspaceTabColorSettings.defaultColorHex(named: name)
+                let hex = WorkspaceTabColorSettings.currentColorHex(named: name)
+                    ?? WorkspaceTabColorSettings.defaultColorHex(named: name)
+                    ?? "#1565C0"
                 return Color(nsColor: NSColor(hex: hex) ?? .systemBlue)
             },
             set: { newValue in
                 let hex = NSColor(newValue).hexString()
-                WorkspaceTabColorSettings.setDefaultColor(named: name, hex: hex)
+                WorkspaceTabColorSettings.setColor(named: name, hex: hex)
                 reloadWorkspaceTabColorSettings()
             }
         )
     }
 
-    private func baseTabColorHex(for name: String) -> String {
-        WorkspaceTabColorSettings.defaultPalette
-            .first(where: { $0.name == name })?
-            .hex ?? "#1565C0"
+    private func baseTabColorHex(for name: String) -> String? {
+        WorkspaceTabColorSettings.defaultColorHex(named: name)
     }
 
-    private func removeWorkspaceCustomColor(_ hex: String) {
-        WorkspaceTabColorSettings.removeCustomColor(hex)
+    private func removeWorkspaceColor(named name: String) {
+        WorkspaceTabColorSettings.removeColor(named: name)
         reloadWorkspaceTabColorSettings()
     }
 
@@ -6082,8 +6157,7 @@ struct SettingsView: View {
     }
 
     private func reloadWorkspaceTabColorSettings() {
-        workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
-        workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
+        workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
     }
 
     private func saveBrowserInsecureHTTPAllowlist() {
@@ -6157,6 +6231,35 @@ private struct SettingsCard<Content: View>: View {
                         .stroke(Color(nsColor: NSColor.separatorColor).opacity(0.5), lineWidth: 1)
                 )
         )
+    }
+}
+
+private struct SettingsHeaderActionButton: View {
+    let title: String
+    let helpText: String
+    let accessibilityIdentifier: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color(nsColor: NSColor.controlBackgroundColor).opacity(0.34))
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color(nsColor: NSColor.separatorColor).opacity(0.22), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .controlSize(.small)
+        .help(helpText)
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 
@@ -6582,9 +6685,11 @@ private struct ShortcutSettingRow: View {
     var body: some View {
         KeyboardShortcutRecorder(
             label: action.label,
+            subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: action),
             shortcut: $shortcut,
             displayString: { action.displayedShortcutString(for: $0) },
-            transformRecordedShortcut: { action.normalizedRecordedShortcut($0) }
+            transformRecordedShortcut: { action.normalizedRecordedShortcut($0) },
+            isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(action)
         )
             .onChange(of: shortcut) { newValue in
                 KeyboardShortcutSettings.setShortcut(newValue, for: action)
