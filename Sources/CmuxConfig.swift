@@ -10,12 +10,6 @@ struct CmuxConfigFile: Codable, Sendable {
         case commands
         case workspace_providers
     }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        commands = (try? container.decode([CmuxCommandDefinition].self, forKey: .commands)) ?? []
-        workspace_providers = try? container.decodeIfPresent([WorkspaceProviderDefinition].self, forKey: .workspace_providers)
-    }
 }
 
 struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
