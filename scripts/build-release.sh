@@ -4,11 +4,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 DERIVED_DATA="/tmp/cmux-release"
+FORK_BUILD_FILE="$PROJECT_DIR/.fork-build-number"
 
 cd "$PROJECT_DIR"
 
-# Get version from Xcode project
-VERSION=$(grep 'MARKETING_VERSION' GhosttyTabs.xcodeproj/project.pbxproj | head -1 | sed 's/.*= //;s/;.*//')
+# Get upstream version from Xcode project
+UPSTREAM_VERSION=$(grep 'MARKETING_VERSION' GhosttyTabs.xcodeproj/project.pbxproj | head -1 | sed 's/.*= //;s/;.*//')
+
+# Auto-increment fork build number
+if [ -f "$FORK_BUILD_FILE" ]; then
+  FORK_BUILD=$(( $(cat "$FORK_BUILD_FILE") + 1 ))
+else
+  FORK_BUILD=1
+fi
+echo "$FORK_BUILD" > "$FORK_BUILD_FILE"
+
+VERSION="${UPSTREAM_VERSION}-fork.${FORK_BUILD}"
 echo "==> Version: $VERSION"
 
 echo "==> Building release..."
@@ -35,7 +46,7 @@ SIZE=$(du -sh "$ZIP_PATH" | cut -f1)
 echo "==> Zip: $ZIP_PATH ($SIZE)"
 
 # Upload to GitHub release
-TAG="v${VERSION}-fork"
+TAG="v${VERSION}"
 echo "==> Uploading to GitHub release $TAG..."
 
 # Delete existing release if any
@@ -43,7 +54,7 @@ gh release delete "$TAG" --repo eunjae-lee/cmux --yes 2>/dev/null || true
 
 gh release create "$TAG" \
   --repo eunjae-lee/cmux \
-  --title "cmux $VERSION (fork)" \
+  --title "cmux $VERSION" \
   --notes "Fork build with workspace provider support." \
   "$ZIP_PATH#cmux-fork.zip"
 
@@ -60,7 +71,7 @@ cask "cmux-fork" do
   version "$VERSION"
   sha256 "$SHA256"
 
-  url "https://github.com/eunjae-lee/cmux/releases/download/v#{version}-fork/cmux-fork.zip"
+  url "https://github.com/eunjae-lee/cmux/releases/download/v#{version}/cmux-fork.zip"
   name "cmux (fork)"
   desc "Terminal workspace manager with provider extensions"
   homepage "https://github.com/eunjae-lee/cmux"
