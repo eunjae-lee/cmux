@@ -338,8 +338,8 @@ struct cmuxApp: App {
                     // Start the Unix socket controller for programmatic access
                     updateSocketController()
                     appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
-                    cmuxConfigStore.onProvidersChanged = { [weak workspaceProviderStore] providers in
-                        workspaceProviderStore?.updateProviders(providers)
+                    cmuxConfigStore.onProvidersChanged = { [weak appDelegate] providers in
+                        appDelegate?.workspaceProviderStoreForTitlebar.updateProviders(providers)
                     }
                     cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
                     cmuxConfigStore.loadAll()
