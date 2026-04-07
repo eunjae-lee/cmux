@@ -34,6 +34,7 @@ In `~/.config/cmux/cmux.json`:
 
 ```json
 {
+  "commands": [],
   "workspace_providers": [
     {
       "id": "cmux-worktree",
@@ -46,6 +47,8 @@ In `~/.config/cmux/cmux.json`:
   ]
 }
 ```
+
+> **Note:** `"commands": []` is required — cmux's config parser expects this field.
 
 Per-project `.cmux/cmux.json` can also define providers (merged with global).
 
