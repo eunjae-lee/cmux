@@ -4,7 +4,7 @@ Pull latest main and update all submodules to their latest remote main. No commi
 
 ## Steps
 
-1. `git pull origin main`
+1. `git pull upstream main`
 2. For each submodule (ghostty, homebrew-cmux, vendor/bonsplit):
    - `cd <submodule>`
    - `git fetch origin`

@@ -16,7 +16,7 @@ Get the current branch ready: update all submodules to their latest remote main,
    - Go back to repo root
 
 2. **Commit submodule updates on main**
-   - `git checkout main && git pull origin main`
+   - `git checkout main && git pull upstream main`
    - Check if any submodules changed: `git diff --name-only` (look for submodule paths)
    - If changed, stage and commit: `git add ghostty homebrew-cmux vendor/bonsplit && git commit -m "Update submodules: <brief description>"`
    - **Do not push.** Ask the user if they want to push.
