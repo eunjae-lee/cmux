@@ -63,6 +63,7 @@ final class CmuxSettingsFileStore {
     private var activeManagedCustomSettings = ManagedCustomSettings()
     private var isApplyingManagedSettings = false
     private(set) var activeSourcePath: String?
+    private var _openInEntries: [OpenInEntry] = []
 
     init(
         primaryPath: String = CmuxSettingsFileStore.defaultPrimaryPath,
@@ -135,6 +136,7 @@ final class CmuxSettingsFileStore {
             activeManagedUserDefaults = resolved.managedUserDefaults
             activeManagedCustomSettings = resolved.managedCustomSettings
             activeSourcePath = resolved.path
+            _openInEntries = resolved.openInEntries
         }
 
         if previousShortcuts != resolved.shortcuts || previousActiveSourcePath != resolved.path {
@@ -168,6 +170,10 @@ final class CmuxSettingsFileStore {
     func settingsFileDisplayPath() -> String {
         let path = synchronized { activeSourcePath } ?? primaryPath
         return (path as NSString).abbreviatingWithTildeInPath
+    }
+
+    var openInEntries: [OpenInEntry] {
+        synchronized { _openInEntries }
     }
 
     private func bootstrapPrimaryTemplateIfNeeded() {
@@ -305,6 +311,9 @@ final class CmuxSettingsFileStore {
         }
         if let shortcutsSection = root["shortcuts"] {
             parseShortcutsSection(shortcutsSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
+        if let openInArray = root["openIn"] as? [[String: Any]] {
+            parseOpenInSection(openInArray, sourcePath: sourcePath, snapshot: &snapshot)
         }
 
         return snapshot
@@ -723,6 +732,27 @@ final class CmuxSettingsFileStore {
         if let raw = jsonString(section["reactGrabVersion"]) {
             snapshot.managedUserDefaults[ReactGrabSettings.versionKey] = .string(raw)
         }
+    }
+
+    private func parseOpenInSection(
+        _ entries: [[String: Any]],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        var result: [OpenInEntry] = []
+        for entry in entries {
+            guard let name = jsonString(entry["name"]),
+                  let command = jsonString(entry["command"]) else {
+                NSLog("[CmuxSettingsFileStore] ignoring invalid openIn entry in %@", sourcePath)
+                continue
+            }
+            guard !name.isEmpty, !command.isEmpty else {
+                NSLog("[CmuxSettingsFileStore] ignoring empty openIn entry in %@", sourcePath)
+                continue
+            }
+            result.append(OpenInEntry(name: name, command: command))
+        }
+        snapshot.openInEntries = result
     }
 
     private func parseShortcutsSection(
@@ -1383,6 +1413,11 @@ final class CmuxSettingsFileStore {
     }
 }
 
+struct OpenInEntry: Equatable, Sendable {
+    var name: String
+    var command: String
+}
+
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
 
 private struct ResolvedSettingsSnapshot {
@@ -1390,6 +1425,7 @@ private struct ResolvedSettingsSnapshot {
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     var managedUserDefaults: [String: ManagedSettingsValue] = [:]
     var managedCustomSettings = ManagedCustomSettings()
+    var openInEntries: [OpenInEntry] = []
 }
 
 private enum ManagedStringOverride: Equatable {

@@ -12678,6 +12678,17 @@ private struct TabItemView: View, Equatable {
         pasteboard.setString(text, forType: .string)
     }
 
+    private func openWorkspaceDirectoryIn(command: String) {
+        let cwd = tab.currentDirectory
+        guard !cwd.isEmpty else { return }
+        Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: command)
+            process.arguments = [cwd]
+            try? process.run()
+        }
+    }
+
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
         settings.visibleAuxiliaryDetails
     }
@@ -13269,6 +13280,23 @@ private struct TabItemView: View, Equatable {
         if let copyableSidebarSSHError {
             Button(String(localized: "contextMenu.copySshError", defaultValue: "Copy SSH Error")) {
                 copyTextToPasteboard(copyableSidebarSSHError)
+            }
+        }
+
+        if !isMulti {
+            let openInEntries = CmuxSettingsFileStore.shared.openInEntries
+            if openInEntries.count == 1, let entry = openInEntries.first {
+                Button(String(format: String(localized: "contextMenu.openInSingle", defaultValue: "Open in %@"), entry.name)) {
+                    openWorkspaceDirectoryIn(command: entry.command)
+                }
+            } else if openInEntries.count > 1 {
+                Menu(String(localized: "contextMenu.openIn", defaultValue: "Open in…")) {
+                    ForEach(openInEntries, id: \.name) { entry in
+                        Button(entry.name) {
+                            openWorkspaceDirectoryIn(command: entry.command)
+                        }
+                    }
+                }
             }
         }
 

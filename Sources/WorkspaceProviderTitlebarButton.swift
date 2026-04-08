@@ -225,6 +225,9 @@ struct TitlebarNewWorkspaceMenuButton: View {
         // Generate temp file for provider output
         let outputPath = NSTemporaryDirectory() + "cmux-provider-\(UUID().uuidString).json"
 
+        // Generate a stable session UUID for this provider workspace
+        let sessionUUID = UUID().uuidString
+
         // Build the create command with args
         var command = "\(provider.create) --id \(Self.shellEscape(item.id))"
         for (key, value) in inputs {
@@ -234,7 +237,10 @@ struct TitlebarNewWorkspaceMenuButton: View {
         // Create workspace with a setup terminal
         let ws = tabManager.addWorkspace(
             title: "Setting up: \(item.name)",
-            initialTerminalEnvironment: ["CMUX_PROVIDER_OUTPUT": outputPath]
+            initialTerminalEnvironment: [
+                "CMUX_PROVIDER_OUTPUT": outputPath,
+                "CMUX_PROVIDER_SESSION_UUID": sessionUUID,
+            ]
         )
         ws.setCustomTitle("Setting up: \(item.name)")
 
@@ -257,7 +263,8 @@ struct TitlebarNewWorkspaceMenuButton: View {
             workspace: ws,
             provider: provider,
             item: item,
-            inputs: inputs
+            inputs: inputs,
+            sessionUUID: sessionUUID
         )
     }
 
@@ -266,7 +273,8 @@ struct TitlebarNewWorkspaceMenuButton: View {
         workspace: Workspace,
         provider: WorkspaceProviderDefinition,
         item: WorkspaceProviderItem,
-        inputs: [String: String]
+        inputs: [String: String],
+        sessionUUID: String
     ) {
         // Watch the directory for the output file using DispatchSource (no polling)
         let directoryPath = (outputPath as NSString).deletingLastPathComponent
@@ -295,7 +303,8 @@ struct TitlebarNewWorkspaceMenuButton: View {
                 workspace: workspace,
                 provider: provider,
                 item: item,
-                inputs: inputs
+                inputs: inputs,
+                sessionUUID: sessionUUID
             )
         }
 
@@ -319,7 +328,8 @@ struct TitlebarNewWorkspaceMenuButton: View {
         workspace: Workspace,
         provider: WorkspaceProviderDefinition,
         item: WorkspaceProviderItem,
-        inputs: [String: String]
+        inputs: [String: String],
+        sessionUUID: String
     ) {
         do {
             let data = try Data(contentsOf: URL(fileURLWithPath: outputPath))
@@ -331,7 +341,7 @@ struct TitlebarNewWorkspaceMenuButton: View {
                 return
             }
 
-            applyProviderResult(result, to: workspace, provider: provider, item: item, inputs: inputs)
+            applyProviderResult(result, to: workspace, provider: provider, item: item, inputs: inputs, sessionUUID: sessionUUID)
         } catch {
             NSLog("[WorkspaceProvider] failed to parse output file: %@", error.localizedDescription)
             try? FileManager.default.removeItem(atPath: outputPath)
@@ -343,7 +353,8 @@ struct TitlebarNewWorkspaceMenuButton: View {
         to workspace: Workspace,
         provider: WorkspaceProviderDefinition,
         item: WorkspaceProviderItem,
-        inputs: [String: String]
+        inputs: [String: String],
+        sessionUUID: String
     ) {
         // Update origin with cwd
         workspace.providerOrigin = WorkspaceProviderOrigin(
@@ -364,10 +375,10 @@ struct TitlebarNewWorkspaceMenuButton: View {
 
         // Close the setup terminal and apply the configured layout
         if var layout = result.layout, let cwd = result.cwd {
-            // Merge workspace-level env into every surface in the layout
-            if let env = result.env, !env.isEmpty {
-                Self.injectEnvIntoLayout(&layout, env: env)
-            }
+            // Merge workspace-level env (plus session UUID) into every surface in the layout
+            var env = result.env ?? [:]
+            env["CMUX_PROVIDER_SESSION_UUID"] = sessionUUID
+            Self.injectEnvIntoLayout(&layout, env: env)
 
             // Store layout for session restore (suspended workspace re-activation)
             workspace.suspendedLayout = layout
